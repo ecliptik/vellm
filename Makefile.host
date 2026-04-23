@@ -1,0 +1,29 @@
+# vellm — native Linux reference build.
+#
+# This Makefile builds vendor/llama2.c/run.c natively into `run_host`.
+# The only reason this binary exists is to generate the golden reference
+# output that tests/run-golden.sh diffs the DOS build against.
+#
+# This is NOT the primary build. See Makefile for the cross-DJGPP build.
+
+CC      ?= cc
+CFLAGS  ?= -O2 -Wall
+LDFLAGS ?=
+LDLIBS  ?= -lm
+
+UPSTREAM := vendor/llama2.c/run.c
+
+.PHONY: all
+all: run_host
+
+run_host: $(UPSTREAM)
+	@if [ ! -f "$(UPSTREAM)" ]; then \
+		echo "error: $(UPSTREAM) not found — run scaffolder task #5 first" >&2; \
+		echo "       (vendor the karpathy/llama2.c snapshot into vendor/llama2.c/)" >&2; \
+		exit 1; \
+	fi
+	$(CC) $(CFLAGS) -o $@ $(UPSTREAM) $(LDFLAGS) $(LDLIBS)
+
+.PHONY: clean
+clean:
+	rm -f run_host

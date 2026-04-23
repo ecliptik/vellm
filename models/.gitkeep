@@ -1,0 +1,5 @@
+# Models directory.
+#
+# Checkpoint binaries (*.bin, *.q8) live here but are .gitignored. Phase 1
+# expects `stories260K.bin` in this directory; Phase 2+ produces *.q8
+# via tools/quantize.py.

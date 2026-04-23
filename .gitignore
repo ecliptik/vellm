@@ -1,0 +1,39 @@
+# Build artifacts
+*.o
+*.obj
+*.exe
+*.EXE
+run_host
+
+# Exception: CWSDPMI is a vendored runtime dependency that must be tracked
+!vendor/cwsdpmi/cwsdpmi.exe
+
+# Model checkpoints (user-supplied, not checked in)
+models/*.bin
+models/*.q8
+!models/.gitkeep
+
+# Build / dist output
+/build/
+/dist/
+
+# Python caches (for tools/quantize.py etc.)
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+
+# DOSBox-X runtime artifacts
+dosbox-x.log
+mapper-*.map
+capture/
+*.ips
+
+# Editor / OS
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
