@@ -1,28 +1,35 @@
 # vellm — native Linux reference build.
 #
-# This Makefile builds vendor/llama2.c/run.c natively into `run_host`.
-# The only reason this binary exists is to generate the golden reference
-# output that tests/run-golden.sh diffs the DOS build against.
+# Natively builds vendor/llama2.c/runq.c into `run_host`. This binary exists
+# for ONE reason: to generate the byte-identical reference output that
+# tests/run-golden.sh diffs the DJGPP `vellm.exe` against (Phase 1 gate).
 #
-# This is NOT the primary build. See Makefile for the cross-DJGPP build.
+# vellm ports runq.c (int8-quantized), not run.c (fp32) — see PLAN.md
+# § "Upstream baseline". The golden reference therefore comes from runq.c.
+#
+# No `-ffast-math`. Reassociation perturbs fp accumulation and breaks the
+# byte-identical gate; the cross build has the same rule.
+#
+# This is NOT the primary build. See `Makefile` for the cross-DJGPP build.
 
 CC      ?= cc
 CFLAGS  ?= -O2 -Wall
 LDFLAGS ?=
 LDLIBS  ?= -lm
 
-UPSTREAM := vendor/llama2.c/run.c
+UPSTREAM := vendor/llama2.c/runq.c
 
 .PHONY: all
 all: run_host
 
 run_host: $(UPSTREAM)
 	@if [ ! -f "$(UPSTREAM)" ]; then \
-		echo "error: $(UPSTREAM) not found — run scaffolder task #5 first" >&2; \
-		echo "       (vendor the karpathy/llama2.c snapshot into vendor/llama2.c/)" >&2; \
+		echo "error: $(UPSTREAM) not found — vendor the karpathy/llama2.c" >&2; \
+		echo "       snapshot into vendor/llama2.c/ first." >&2; \
 		exit 1; \
 	fi
 	$(CC) $(CFLAGS) -o $@ $(UPSTREAM) $(LDFLAGS) $(LDLIBS)
+	@echo "built $@ from $(UPSTREAM) (native reference for golden diff)"
 
 .PHONY: clean
 clean:
