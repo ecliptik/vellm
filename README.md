@@ -5,8 +5,9 @@ Intel Pentium OverDrive under MS-DOS 6.22 — emitting coherent
 TinyStories-domain text at 0.27 tokens per second on a 1995-era
 machine, with 48 MB of RAM and no SIMD.**
 
-<!-- docs/vellm-real-hw.jpeg lands after the task-team closes -->
-![vellm running on PODP5V83](docs/vellm-real-hw.jpeg)
+![vellm running stories42M_q80 on a real Intel Pentium Overdrive 83 MHz under MS-DOS 6.22 — the open case shows the motherboard; the monitor shows the live benchmark with an accurate CPU/MHz/RAM banner](docs/vellm-real-hw.jpeg)
+
+*Pentium OverDrive PODP5V83 (1995), MS-DOS 6.22, 48 MB RAM, BIOS 01/03/95, running `BENCH42.BAT` at `--max-seq-len 128`.*
 
 A port of [karpathy/llama2.c](https://github.com/karpathy/llama2.c)
 (specifically `runq.c`, the int8-quantized variant) to MS-DOS 6.22,
@@ -89,10 +90,12 @@ bench/run.sh --scenario 15m-default      # run one scenario
 bench/run.sh --output bench/results.md   # write rows to file
 ```
 
-Sample `--- VELLM BENCHMARK ---` block, from the real PODP5V83 run:
+Sample `--- VELLM BENCHMARK ---` block, with tok/s values from the real
+PODP5V83 run:
 
 ```
-cpu        : GenuineIntel family 5 model 3 stepping 2
+cpu        : Intel Pentium OverDrive
+cpu mhz    : 83.0
 model      : STORY15.BIN
 ckpt bytes : 17101696
 tokens     : 199
@@ -103,6 +106,12 @@ prompt tok/s: 0.28
 gen tok/s  : 0.27
 peak mem   : 19791872
 ```
+
+The banner printed to stderr at every run shows the actual hardware —
+friendly CPU name (via CPUID family/model lookup), measured clock rate
+(rdtsc vs. BIOS tick, ~0.1 MHz precision), physical RAM breakdown,
+and DOS + BIOS versions. See the photo above for the banner rendered
+live on target hardware.
 
 [`docs/hardware.md`](./docs/hardware.md) documents the DOSBox-X vs
 real-hardware calibration — DOSBox-X at `cycles=fixed 90000` runs
