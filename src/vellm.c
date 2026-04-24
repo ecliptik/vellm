@@ -1706,8 +1706,11 @@ static void bench_hw_banner(FILE *out) {
 #ifndef TESTING
 
 void error_usage() {
-    fprintf(stderr, "Usage:   run <checkpoint> [options]\n");
-    fprintf(stderr, "Example: run model.bin -n 256 -i \"Once upon a time\"\n");
+    // DOS-PORT: upstream named its binary `run`; ours is `vellm.exe`. Also
+    // DOS-PORT: show a realistic DOS invocation with 8.3 filenames matching
+    // DOS-PORT: what the shipped CF package uses (STORY15.BIN / TOKEN.BIN).
+    fprintf(stderr, "Usage:   vellm.exe <checkpoint> [options]\n");
+    fprintf(stderr, "Example: vellm.exe STORY15.BIN -z TOKEN.BIN -t 0 -s 42 -i \"Once upon a time\"\n");
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  -t <float>  temperature in [0,inf], default 1.0\n");
     fprintf(stderr, "  -p <float>  p value in top-p (nucleus) sampling in [0,1] default 0.9\n");
