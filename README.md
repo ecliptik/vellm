@@ -1,6 +1,6 @@
 # vellm
 
-vellm (pronounced *[vellum](https://en.wikipedia.org/wiki/Vellum)*, after the medieval parchment) is a port of [karpathy/llama2.c](https://github.com/karpathy/llama2.c) to MS-DOS 6.22. It runs [TinyStories](https://huggingface.co/karpathy/tinyllamas) 15M and 42M checkpoints — tiny transformer models trained on children's-story text — on an Intel [Pentium OverDrive](https://en.wikipedia.org/wiki/Pentium_OverDrive) via [DJGPP](https://www.delorie.com/djgpp/) and CWSDPMI.
+vellm (pronounced *[vellum](https://en.wikipedia.org/wiki/Vellum)*, after the medieval parchment) is a port of [karpathy/llama2.c](https://github.com/karpathy/llama2.c) to MS-DOS 6.22. It runs [TinyStories](https://huggingface.co/karpathy/tinyllamas) 15M and 42M checkpoints — tiny transformer models trained on children's-story text — on an Intel [Pentium OverDrive](https://en.wikipedia.org/wiki/Pentium_OverDrive) via [DJGPP](https://www.delorie.com/djgpp/) and [CWSDPMI](https://en.wikipedia.org/wiki/DOS_Protected_Mode_Interface).
 
 This project was 100% built agentically using [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
@@ -132,7 +132,7 @@ See [BUILDING.md](./BUILDING.md) for prerequisites, DJGPP cross-compiler install
 - **[llama2.c](https://github.com/karpathy/llama2.c)** by Andrej Karpathy — `runq.c` is the base that vellm ports. Upstream SHA pinned at [`vendor/llama2.c/UPSTREAM_SHA`](./vendor/llama2.c/UPSTREAM_SHA). MIT.
 - **[TinyStories](https://arxiv.org/abs/2305.07759)** by Ronen Eldan and Yuanzhi Li; checkpoints trained by Karpathy.
 - **[DJGPP](https://www.delorie.com/djgpp/)** by DJ Delorie — the 32-bit DOS GCC port.
-- **[CWSDPMI](http://sandmann.dotster.com/cwsdpmi/)** by Charles W. Sandmann — DOS DPMI host. Redistributed per its license (see [`vendor/cwsdpmi/`](./vendor/cwsdpmi/)).
+- **[CWSDPMI](https://www.delorie.com/pub/djgpp/current/v2misc/)** by Charles W. Sandmann — DOS DPMI host. Redistributed per its license (see [`vendor/cwsdpmi/`](./vendor/cwsdpmi/)).
 - **[DOSBox-X](https://dosbox-x.com/)** — DOS emulator for pre-hardware testing.
 - **[build-djgpp](https://github.com/andrewwutw/build-djgpp)** by Andrew Wu — installer that `tools/build-djgpp.sh` wraps.
 
