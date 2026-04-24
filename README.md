@@ -96,7 +96,7 @@ VELLM.EXE STORY42.BIN -z TOKEN.BIN -L 128 -t 0.8 -i "The floppy drive"
 
 Canonical 200-token run, seed 42, temp 0. Full matrix in [`bench/results.md`](./bench/results.md).
 
-| Platform | Model | Tokens | Gen tok/s | Wall | Peak megs |
+| Platform | Model | Tokens | Gen&nbsp;tok/s | Wall | Peak&nbsp;megs |
 |---|---|---:|---:|---:|---:|
 | **Real PODP5V83 (83 MHz)** | [15M q80](https://huggingface.co/karpathy/tinyllamas) | 200 | **0.27** | **11m 56s** | 19.8 |
 | **Real PODP5V83 (83 MHz)** | [42M q80](https://huggingface.co/karpathy/tinyllamas), `-L 128` | 128 | **0.11** | **19m 48s** | **45.0** |
