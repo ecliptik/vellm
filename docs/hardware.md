@@ -94,6 +94,38 @@ on the 48 MB target. Phase 3 resolves this. Conclusions for Phase 5:
   §"What worked item 4"), so real-hardware wall time is expected to
   look meaningfully different than the DOSBox numbers here.
 
+## Reproducing the benchmark
+
+Phase 4 shipped a reproducible benchmark harness:
+
+- **Host side:** `bench/run.sh` drives `dosbox-x` via
+  `tools/dosbox-run.sh`, captures the `--- VELLM BENCHMARK ---` block
+  emitted by `vellm.exe --benchmark`, and emits one markdown / CSV /
+  TSV row per scenario to stdout or a file.
+
+  ```bash
+  make                                    # build vellm.exe
+  bench/run.sh                            # full matrix, print to stdout
+  bench/run.sh --scenario 15m-default     # one scenario
+  bench/run.sh --output bench/results.md --append
+                                          # ...or append to results.md
+  ```
+
+  Scenarios: `15m-default`, `15m-seq256`, `42m-seq256` (the last one
+  is skipped when `models/stories42M_q80.bin` is absent).
+
+- **DOS side:** `BENCH.BAT` (15M) and `BENCH42.BAT`
+  (`stories42M_q80 --max-seq-len 256`) are shipped in
+  `dist/vellm-cf.tar.gz` / `dist/vellm-cf.zip` produced by
+  `make cf-package`. Boot DOS, cd to the deploy dir, run the BAT
+  file, capture the benchmark block on paper / camera / serial
+  capture.
+
+Numbers land in [`bench/results.md`](../bench/results.md), including
+a reserved row for the real PODP5V83 that gets filled in from a
+hardware run. See that file's "Provenance" section for DOSBox-X
+config details and the host-Linux sanity ceiling.
+
 ## Phase 1 gate — regression fingerprint
 
 The byte-identical gate on `stories15M_q80 -t 0 -s 42 -n 200 -i "Once
