@@ -1753,8 +1753,12 @@ int main(int argc, char *argv[]) {
     bench_hw_banner(stderr);
 
     // default parameters
-    char *checkpoint_path = NULL;  // e.g. out/model.bin
-    char *tokenizer_path = "tokenizer.bin";
+    char *checkpoint_path = NULL;  // e.g. STORY15.BIN or STORY42.BIN on DOS
+    // DOS-PORT: default tokenizer path is `TOKEN.BIN` (8.3, as the CF
+    // DOS-PORT: package ships it), not upstream's long-name `tokenizer.bin`
+    // DOS-PORT: which DOS 6.22 can't see without LFN support. Users who
+    // DOS-PORT: keep the long-name file can still point at it via `-z`.
+    char *tokenizer_path = "TOKEN.BIN";
     float temperature = 1.0f;   // 0.0 = greedy deterministic. 1.0 = original. don't set higher
     float topp = 0.9f;          // top-p in nucleus sampling. 1.0 = off. 0.9 works well, but slower
     int steps = 256;            // number of steps to run for

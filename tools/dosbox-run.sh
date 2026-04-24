@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # dosbox-run.sh — run a DOS executable under DOSBox-X and capture its stdout.
 #
-# Typical headless usage:
-#   tools/dosbox-run.sh --exe build/vellm.exe \
-#     --args "stories260K.bin -t 0 -s 42 -i Once upon a time" \
+# Typical headless usage (DOS 6.22 has no LFN support, so filenames
+# passed to vellm.exe via --args must be 8.3 — stage long-name host
+# files to 8.3 copies and --include those, then reference the 8.3
+# name inside --args):
+#   tools/dosbox-run.sh --exe vellm.exe \
+#     --args "MODEL.BIN -z TOKEN.BIN -t 0 -s 42 -i Once upon a time" \
+#     --include /tmp/MODEL.BIN --include /tmp/TOKEN.BIN \
 #     --stdout /tmp/vellm.out
 #
 # Interactive (opens the DOSBox-X window):
-#   tools/dosbox-run.sh --exe build/hello.exe --interactive
+#   tools/dosbox-run.sh --exe hello.exe --interactive
 #
 # The script:
 #   1. Stages a temp dir containing the exe plus every --include file (cwsdpmi.exe,
