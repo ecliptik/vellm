@@ -45,9 +45,11 @@ MINSTACK := 2048k
 
 # vellm.c is a self-contained fork of vendor/llama2.c/runq.c with minimum
 # DOS-required deltas. It does NOT link against the Phase-0 scaffolding
-# (src/matmul.c, src/quant.c, src/timing.c, src/tokenizer.c) — those get
-# subsumed/replaced in later phases; the Phase 1 port stays single-TU so the
+# (src/matmul.c, src/timing.c, src/tokenizer.c) — those get subsumed/replaced
+# in later phases; the Phase 1 port stays single-TU so the
 # `grep 'DOS-PORT:' src/vellm.c` audit is complete.
+# (src/quant.{c,h} were deleted in Phase 2 — runq.c's Q8_0 format is native;
+# vellm never needs its own quant path.)
 SRC_MAIN  := src/vellm.c
 
 # --- Targets ------------------------------------------------------------------

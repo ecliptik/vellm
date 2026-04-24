@@ -65,9 +65,10 @@ Goal: make it robust on 48 MB of real DOS, not just technically-working. Origina
 
 1. Allocation audit. Confirm `stories15M_q80.bin` fits resident alongside tokenizer, KV cache, and stdio buffers. Document peak resident memory (via `_go32_dpmi_get_free_memory_information` or equivalent).
 2. Pre-allocate one arena at startup for all model tensors and KV cache. No per-token allocations in the hot path, no DJGPP-allocator fragmentation across generations.
-3. Determinism check: run the Phase 1 command three times with the same seed, verify byte-identical output across runs (catches uninitialized-memory bugs that DJGPP's allocator can otherwise mask).
-4. Push the upper bound: try `stories42M_q80.bin` — if it fits, document it as an additional target; if it doesn't, document the RAM boundary in `docs/hardware.md`.
-5. The Phase 0 `src/quant.{c,h}` stubs can be deleted — we never need our own quant code.
+3. **On-the-fly token-embedding dequant.** Upstream `runq.c`'s `memory_map_weights()` dequantizes the full `vocab_size × dim` token-embedding table to fp32 at load (35 MB for 15M on a 32K vocab — more than 2× the 17 MB checkpoint, and the single largest resident allocation). For a 48 MB target this is untenable. Change: keep the embedding in Q8_0 form, dequantize one row on demand at each embedding lookup. Speed cost on an 83 MHz Pentium is negligible (~130 µs/token) vs. matmul time; memory goes from 35 MB to ~1 KB transient. This is a memory-vs-speed tradeoff upstream resolved in favor of speed; for vellm's constraints, memory wins.
+4. Determinism check: run the Phase 1 command three times with the same seed, verify byte-identical output across runs (catches uninitialized-memory bugs that DJGPP's allocator can otherwise mask).
+5. Push the upper bound: try `stories42M_q80.bin` — if it fits (now plausible with on-the-fly dequant), document it as an additional target; if it doesn't, document the RAM boundary in `docs/hardware.md`.
+6. The Phase 0 `src/quant.{c,h}` stubs can be deleted — we never need our own quant code.
 
 **Exit:** 15M q80 runs to completion without swapping, deterministic across runs, peak-memory number captured. Optional upper-bound test with 42M documented.
 

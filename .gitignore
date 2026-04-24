@@ -37,3 +37,6 @@ capture/
 *.swo
 .idea/
 .vscode/
+
+# Claude Code local session state
+.claude/
