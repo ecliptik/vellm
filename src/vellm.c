@@ -1461,24 +1461,40 @@ static unsigned long bench_dpmi_free_bytes(void) {
 }
 
 // DOS-PORT: Measure CPU clock rate by reading rdtsc across a known wall-time
-// DOS-PORT: interval (3 BIOS timer ticks ≈ 165 ms). Result is MHz.
-// DOS-PORT: Useful as proof-of-hardware in screenshots and as an mhz field in
-// DOS-PORT: the --benchmark report. On a 83 MHz PODP5V83 this reads ~83.0;
-// DOS-PORT: on DOSBox-X with cycles=fixed N it reflects the emulated rate.
-// DOS-PORT: Returns 0.0 on host native builds (where we don't care) and on
-// DOS-PORT: pre-Pentium CPUs that lack rdtsc (same gate as CPUID presence).
+// DOS-PORT: interval. We use the BIOS tick counter at 0040:006C directly —
+// DOS-PORT: libc's clock() on DJGPP advances in 10 ms units nominally but is
+// DOS-PORT: actually driven by the 18.2 Hz BIOS interrupt (≈55 ms per tick),
+// DOS-PORT: so waiting on clock() introduces a 0–55 ms jitter between "time
+// DOS-PORT: of c0 read" and "time c0 reflects." The BIOS tick counter jumps
+// DOS-PORT: atomically at each interrupt, so we can sync-to-edge and then
+// DOS-PORT: measure N ticks of exact 65536/1193181.8 s each (= 54.9254 ms).
+// DOS-PORT: N_TICKS=8 gives a ~440 ms calibration window — long enough to
+// DOS-PORT: capture ~36M rdtsc cycles on an 83 MHz P5, short enough not to
+// DOS-PORT: noticeably delay startup.
+// DOS-PORT: On an 83 MHz PODP5V83 this reads ~83.0; on DOSBox-X with
+// DOS-PORT: cycles=fixed N it reflects the emulated rate. Returns 0.0 on
+// DOS-PORT: host native builds and on pre-Pentium CPUs that lack rdtsc.
 static double bench_measure_mhz(void) {
 #if defined __DJGPP__
     if (!bench_has_cpuid()) return 0.0;  // rdtsc is Pentium-era alongside CPUID
-    unsigned long long t0, t1;
-    clock_t c0, c1;
-    __asm__ volatile("rdtsc" : "=A"(t0));
-    c0 = clock();
-    do { c1 = clock(); } while (c1 - c0 < 3);
-    __asm__ volatile("rdtsc" : "=A"(t1));
-    double elapsed_s = (double)(c1 - c0) / (double)CLOCKS_PER_SEC;
+    enum { N_TICKS = 8 };  // ~440 ms window
+    unsigned long t_now, t_sync, t_end;
+    uint64_t r0, r1;
+
+    /* Sync to the next BIOS tick edge so the measurement window starts
+     * aligned — eliminates the 0-to-55 ms bias of "c0 read mid-tick". */
+    dosmemget(0x0046Cu, 4, &t_now);
+    do { dosmemget(0x0046Cu, 4, &t_sync); } while (t_sync == t_now);
+
+    __asm__ volatile("rdtsc" : "=A"(r0));
+    do { dosmemget(0x0046Cu, 4, &t_end); } while (t_end - t_sync < N_TICKS);
+    __asm__ volatile("rdtsc" : "=A"(r1));
+
+    unsigned long n_ticks = t_end - t_sync;
+    /* BIOS timer period: 65536 counts of the 1.193182 MHz 8254 divider. */
+    double elapsed_s = (double)n_ticks * 65536.0 / 1193181.8181818;
     if (elapsed_s <= 0.0) return 0.0;
-    return ((double)(t1 - t0)) / (elapsed_s * 1.0e6);
+    return ((double)(r1 - r0)) / (elapsed_s * 1.0e6);
 #else
     return 0.0;
 #endif
@@ -1501,6 +1517,42 @@ static unsigned int bench_conv_kb(void) {
     memset(&r, 0, sizeof r);
     __dpmi_int(0x12, &r);
     return r.x.ax;
+#else
+    return 0;
+#endif
+}
+
+// DOS-PORT: Physical extended memory in KB via INT 15h. Reports actual RAM
+// DOS-PORT: above 1 MB, not DPMI virtual address space. Uses E801h (post-1994
+// DOS-PORT: standard, unambiguous above 64 MB) and falls back to AH=88h (16-bit
+// DOS-PORT: AX = KB extended, capped at ~64 MB) for older BIOSes. This is the
+// DOS-PORT: "your machine has N MB of RAM" figure the banner should show —
+// DOS-PORT: CWSDPMI's _go32_dpmi_get_free_memory_information() returns the
+// DOS-PORT: virtual address space including paging-file potential, which on
+// DOS-PORT: a 48 MB box routinely shows 150+ MB and misleads the reader.
+static unsigned long bench_ext_kb(void) {
+#if defined __DJGPP__
+    __dpmi_regs r;
+
+    /* E801h: ES:DI untouched, CF clear on success. Returns
+     *   AX/CX = extended memory 1-16 MB in KB (both registers same value)
+     *   BX/DX = extended memory above 16 MB in 64-KB blocks
+     * Some BIOSes zero AX/BX and return only in CX/DX; handle both. */
+    memset(&r, 0, sizeof r);
+    r.x.ax = 0xE801;
+    __dpmi_int(0x15, &r);
+    if (!(r.x.flags & 0x0001u)) {  /* CF clear = success */
+        unsigned int below16 = r.x.ax ? r.x.ax : r.x.cx;
+        unsigned int above16 = r.x.bx ? r.x.bx : r.x.dx;
+        return (unsigned long)below16 + (unsigned long)above16 * 64u;
+    }
+
+    /* Fall back to AH=88h: AX = KB of extended memory. Capped at 64 MB - 1 KB
+     * because AX is 16 bits. On a 48 MB target this is sufficient. */
+    memset(&r, 0, sizeof r);
+    r.h.ah = 0x88;
+    __dpmi_int(0x15, &r);
+    return (unsigned long)r.x.ax;
 #else
     return 0;
 #endif
@@ -1585,8 +1637,8 @@ static void bench_hw_banner(FILE *out) {
     bench_dos_version(dosver, sizeof(dosver));
     bench_bios_date(biosdate, sizeof(biosdate));
     double mhz = bench_mhz_cached();
-    unsigned long dpmi_free = bench_dpmi_free_bytes();
     unsigned int conv_kb = bench_conv_kb();
+    unsigned long ext_kb = bench_ext_kb();
 
     fprintf(out, "vellm (%s)\n",
 #if defined __DJGPP__
@@ -1600,12 +1652,17 @@ static void bench_hw_banner(FILE *out) {
     } else {
         fprintf(out, "CPU: %s [%s]\n", brand, features);
     }
-    if (conv_kb > 0) {
-        fprintf(out, "MEM: %u KB conv, %.1f MB DPMI free\n",
-                conv_kb, (double)dpmi_free / (1024.0 * 1024.0));
-    } else {
-        fprintf(out, "MEM: %.1f MB DPMI free\n",
-                (double)dpmi_free / (1024.0 * 1024.0));
+    if (ext_kb > 0) {
+        /* Report physical RAM: conventional (640 KB on any sane config) plus
+         * extended-memory detection via INT 15h. Round-to-nearest-MB on the
+         * total so a 48 MB machine reads "48 MB" even if HIMEM shaved a few
+         * KB of XMS handles from the reported extended figure. */
+        unsigned long total_kb = (unsigned long)conv_kb + ext_kb;
+        unsigned long total_mb = (total_kb + 512) / 1024;
+        fprintf(out, "MEM: %lu MB RAM (%u KB conv + %.1f MB ext)\n",
+                total_mb, conv_kb, (double)ext_kb / 1024.0);
+    } else if (conv_kb > 0) {
+        fprintf(out, "MEM: %u KB conv\n", conv_kb);
     }
     fprintf(out, "DOS: %s   BIOS: %s\n\n", dosver, biosdate);
     fflush(out);
