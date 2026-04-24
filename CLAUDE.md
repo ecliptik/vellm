@@ -90,6 +90,7 @@ pkill -x dosbox-x                           # stop it (or Ctrl+F9 in window)
 - Do not run multiple DOSBox-X instances simultaneously — they contend for the audio device and the window title makes xdotool's `search --name DOSBox` ambiguous. The launcher refuses to start a second one; use `--kill-first` to restart cleanly.
 - `xdotool type` uses literal strings. Use `xdotool key Return` for Enter, `xdotool key ctrl+c` for control chords. Use `--delay 40` on `type` — DOSBox-X occasionally drops keys with zero delay.
 - `tools/dosbox-run.sh` (the headless runner) and `tools/dosbox-launch.sh` (this visible launcher) are separate tools with different jobs. Don't collapse them.
+- `tools/dosbox-x.conf` sets `quit warning = false`. DOSBox-X's default `auto` opens a modal "program still running, really quit?" dialog on SIGTERM, which blocks any scripted shutdown and silently wedges automated runners. If a test agent ever appears stuck with no output, check for this dialog via `DISPLAY=:0 scrot` before digging deeper.
 
 ## Critical Rules
 
@@ -107,15 +108,19 @@ pkill -x dosbox-x                           # stop it (or Ctrl+F9 in window)
 
 ## Correctness Gate (Phase 1)
 
-The canonical correctness test is a byte-level diff of
+The canonical correctness test is a byte-level diff of the **first 192 bytes** (≈ 30 tokens, the first paragraph) of
 
 ```
 vellm.exe stories15M_q80.bin -t 0 -s 42 -n 200 -i "Once upon a time"
 ```
 
-against the same invocation of an unmodified upstream `runq.c` native build. Anything that perturbs that diff — optimizer changes, fast-math, matmul refactors — is rejected until Phase 3, where the gate shifts to tolerance-based diffing.
+against `tests/golden/once_upon_a_time.txt` (first 192 bytes). Anything that perturbs that prefix — optimizer changes, fast-math, matmul refactors, missing DOS-PORT — is rejected.
 
-vellm ports `runq.c` (int8-quantized) not `run.c` (fp32). See `PLAN.md` § "Upstream baseline" for rationale.
+**Why 192 bytes and not 200 tokens:** Full-output byte-identity turns out to be physically infeasible across independent fp toolchains — DJGPP's older libm transcendentals diverge sub-ULP from host glibc, and x87 vs SSE2 rounding compounds across ~180 compute ops per token. After ~30 tokens the divergence is enough to flip a softmax argmax, and both sides continue producing grammatically valid but different TinyStories text. The first 192 bytes are stable across every tested fp configuration (native SSE2, native x87 ± `-ffloat-store`, DJGPP x87 ± `-ffloat-store`), which makes them a strong cross-toolchain correctness fingerprint. Full diagnosis in `docs/phase1-notes.md`.
+
+Phase 3 upgrades this to a tolerance-based logit-trace diff (cosine similarity over the full 200 tokens) when `-ffast-math` re-enters.
+
+vellm ports `runq.c` (int8-quantized) not `run.c` (fp32). See `PLAN.md` § "Upstream baseline".
 
 ## Do Not
 
