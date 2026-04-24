@@ -464,8 +464,6 @@ integer-quantization design; deferred.
 
 ## Integration measurements
 
-To be filled in during task #5 after tuner's #3/#4 land.
-
 ### stories15M_q80 at memsize=48
 
 | Build                              | Gate    | Peak demand | CWSDPMI.SWP | Wall time (n=200) |
@@ -483,3 +481,128 @@ To be filled in during task #5 after tuner's #3/#4 land.
 | Phase 3 + `--max-seq-len 256` only                   |    ~50.5 MB |       ~4 MB |
 | Phase 3 + int8 KV only (seq_len=1024)                |    51.06 MB |     ~4.5 MB |
 | Phase 3 + `--max-seq-len 256` + int8 KV (task #4)    | **44.69 MB**|       **0** |
+
+## Task #5 — final integration
+
+Gate-of-record, wall-time benchmark, and determinism check captured
+on the merged tree (commit `fd1480b`, all of #1 / #2 / #3 / #4
+applied).
+
+### Gate-of-record
+
+```
+$ tests/run-golden.sh
+run-golden: invoking vellm.exe under DOSBox-X...
+PASS (primary): first 192 bytes byte-identical to tests/golden/once_upon_a_time.txt
+                (full stdout is 634 bytes)
+
+real    2m59.305s
+user    2m26.570s
+sys     0m0.591s
+```
+
+**Still clears the Phase 1 primary 192-byte byte-identical gate.**
+The tolerance fallback added in task #2 was never exercised — the
+30-token cross-toolchain fingerprint survives `-ffast-math`, dropped
+`-ffloat-store`, IDIV→SAR, and per-head-quantized int8 KV, all
+stacked together. The tolerance gate stays in the tree as a safety
+net for future work that does break byte-identity.
+
+Full stdout length dropped from 692 bytes (Phase 2) to 634 bytes
+(Phase 3). The divergence happens *after* byte 192 — by the body of
+the second paragraph both sides produce coherent but different
+TinyStories passages. That is the expected post-Phase-1 behavior
+documented in `docs/phase1-notes.md` §"FP precision mismatch";
+Phase 3 changed nothing about the cross-toolchain drift story.
+
+### Wall-time headline
+
+| Phase                                 | Wall    | Speedup vs Phase 2 |
+|---------------------------------------|--------:|-------------------:|
+| Phase 2 baseline (b5d72d0)            | 5m45s   |                  — |
+| Phase 3 final (fd1480b, gate-of-record) | **2m59.305s** | **1.93×** (**-48.4%**) |
+
+### Determinism check (3× `-n 20 -s 42`)
+
+Three back-to-back runs of `-n 20` at seed 42 under DOSBox-X
+memsize=48, same canonical prompt, independent DOSBox-X invocations.
+All three produce byte-identical captured stdout:
+
+```
+b5696ff3ca002b9660dc40b0587c3021  det1.txt
+b5696ff3ca002b9660dc40b0587c3021  det2.txt
+b5696ff3ca002b9660dc40b0587c3021  det3.txt
+```
+
+Notably, this is the **same md5** as the Phase 2 `-n 20 -s 42`
+determinism check (see `docs/phase2-memory.md` §"Task #4 determinism
+result"). 20 tokens is inside the pre-divergence window where every
+tested FP configuration agrees byte-for-byte — Phase 3's lossy
+additions (int8 KV, `-ffast-math`, no `-ffloat-store`) don't flip
+any argmax within that window.
+
+Phase 2's arena determinism (`memset(arena, 0, size)` + single
+bump-alloc) and Phase 3's additions (flags, IDIV→shift, int8 KV) all
+preserve it. Nothing in Phase 3 introduces RNG or timing-dependent
+behavior in the compute path.
+
+### Optimizations kept
+
+1. **Experiment A** (tuner task #3) — `-O2 -fomit-frame-pointer
+   -funroll-loops -ffast-math`, dropped `-ffloat-store`. Commit
+   `74460cf`. **-52.8% wall** by itself. The whole Phase 3 story
+   comes from here.
+2. **Experiment B** (tuner task #3) — IDIV→SAR replacement for the
+   per-group scale-index computation; assert `GS` power-of-2 at load
+   and derive `GS_SHIFT = log2(GS)` once. Commit `4b4b969`. **-1.5%
+   under DOSBox**; per-Agner-Fog prediction ~20-40% on real P54C.
+3. **int8 KV cache** (tuner task #4) — per-head fp32 scale, 3.8×
+   reduction on KV memory. Commit `fd1480b`. **+11% wall on 15M**
+   (acceptable trade for the memory headroom) and **-40% peak on
+   42M** combined with `--max-seq-len 256`.
+4. **`--max-seq-len N` / `-L N`** (harness task #1) — optional KV
+   cache cap. Commit `c1d22c2`. Pure memory lever; no wall-time
+   change when unused.
+5. **Tolerance gate** (harness task #2) — additional gate path in
+   `tests/run-golden.sh`. Commit `fa04226`. Not yet exercised;
+   present for future lossy optimizations.
+
+### Optimizations considered and rejected
+
+Full rationale in `docs/optimization-notes.md` §"What didn't work":
+
+- `-O3` — regresses on P5-targeted code without SIMD.
+- `-fschedule-insns{,2}` — fights `-funroll-loops`; neutral or
+  harmful.
+- Hand-written U/V pipe pairing — gcc's Pentium scheduler already
+  covers this; the IDIV was the real bottleneck, which Experiment B
+  captured.
+- Blocked / tiled matmul — wrong algorithm for matvec; no cache-local
+  reuse in the streamed weight operand.
+- Fixed-point matmul — fp is already <15% of the hot-loop work, not
+  worth the correctness risk.
+
+## Phase 4 carryover
+
+Phase 3 delivered the speed and memory Phase 3 promised. Phase 4
+picks up the benchmark infrastructure:
+
+1. **`--benchmark` CLI flag** (scaffolded since Phase 0 but not
+   wired). Intended shape: emit tok/s with a per-phase cycle
+   breakdown (`rdtsc` from `src/timing.c`) separating matmul from
+   attention from sampling from tokenize.
+2. **Real PODP5V83 wall-clock measurements** for the full optimization
+   matrix. DOSBox-X's cycles=fixed 90000 does not model P5 instruction
+   latencies — in particular it under-represents the IDIV→SAR win
+   (see `docs/optimization-notes.md` §"What worked item 4"). Until we
+   run on real hardware the Experiment B number is a lower bound.
+3. **Int-MAC attention inner loops.** int8 KV cache did int8→float
+   conversion inside the attention fmadd chain. A fully-int MAC
+   (quantize `q` and `att` too, int32-accumulated dot products) could
+   flip the 18.5s task-#4 regression into a net win. Non-trivial
+   numerically; deferred.
+4. **486DX2/66 stretch** benchmark run on the same matrix — the
+   PLAN.md stretch goal. Probably needs a smaller Q8_0 model
+   (stories260K?) to fit the weaker hardware.
+5. **Floppy-sized release zip** (PLAN.md Phase 5 item that lands
+   with v0.1).

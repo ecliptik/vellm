@@ -10,83 +10,102 @@ The primary target is documented in `CLAUDE.md`:
 - CWSDPMI r7
 
 This file will grow into a full matrix of tested configurations
-(including the 486DX2/66 stretch benchmark) as Phase 5 approaches. For
-now the matrix captures Phase 2's model-size-vs-RAM findings.
+(including the 486DX2/66 stretch benchmark) as Phase 5 approaches. It
+currently captures Phase 2's memory findings and Phase 3's speed +
+memory integration numbers.
 
-## Model size vs. 48 MB target
+## Model size vs. 48 MB target (Phase 3 final)
 
-Captured post-Phase-2 (arena + on-the-fly embedding dequant). All runs
-under DOSBox-X `memsize = 48` with CWSDPMI r7 to match the target
-PODP5V83. "Peak demand" is the virtual-arena drop from `main-entry` to
+Captured post-Phase-3 on commits `74460cf` (flags) `4b4b969` (IDIV→shift)
+`fd1480b` (int8 KV cache). All runs under DOSBox-X `memsize = 48,
+cycles = fixed 90000` with CWSDPMI r7 to match the target PODP5V83.
+"Peak demand" is the virtual-arena drop from `main-entry` to
 `after-build_transformer` as reported by
 `_go32_dpmi_get_free_memory_information()`. "Swap peak" is the
-`CWSDPMI.SWP` file size sampled mid-run. See
-`docs/phase2-memory.md` for the measurement methodology.
+`CWSDPMI.SWP` file size sampled mid-run. Measurement methodology:
+`docs/phase2-memory.md`. Per-experiment wall-time and memory deltas:
+`docs/phase3-notes.md`.
 
-| Model              | Disk    | Config (dim/hidden/layers/vocab/seq) | Peak demand | Swap peak | Fit at memsize=48 |
-|--------------------|--------:|---------------------------------------|------------:|----------:|-------------------|
-| `stories15M_q80`   | 16.31 MB | 288 / 768 / 6 / 32000 / 256           | 19.89 MB    | 0         | **fits, no swap** |
-| `stories42M_q80`   | 42.27 MB | 512 / 1376 / 8 / 32000 / 1024         | 74.50 MB    | ~30 MB    | fits, paging      |
+| Model + flags                              | Disk     | Config (dim/hidden/layers/vocab/seq) | Peak demand    | Swap peak | Fit at memsize=48     | Wall time (n=200) |
+|---------------------------------------------|---------:|---------------------------------------|---------------:|----------:|-----------------------|------------------:|
+| `stories15M_q80`                            | 16.31 MB | 288 / 768 / 6 / 32000 / 256           | **17.44 MB**   | 0         | **fits, no swap**     | **2m59s**         |
+| `stories42M_q80` (default)                  | 42.27 MB | 512 / 1376 / 8 / 32000 / 1024         | 51.06 MB       | ~4.5 MB   | fits, paging          | —                 |
+| `stories42M_q80 --max-seq-len 256`          | 42.27 MB | 512 / 1376 / 8 / 32000 / **256 (cap)** | **44.69 MB**   | **0**     | **fits, no swap**     | —                 |
 
-Pre-Phase-2 baseline, for reference (see `docs/phase2-memory.md`):
+Physical ceiling at `memsize=48`: **46.55 MB**. The headline is the last
+row — `stories42M_q80 + --max-seq-len 256 + int8 KV` is the first
+configuration that fits 42M onto the 48 MB target with zero paging.
 
-| Model            | Peak demand | Swap peak | Fit at memsize=48       |
-|------------------|------------:|----------:|-------------------------|
-| `stories15M_q80` | 55.13 MB    | ~10 MB    | fits, paging            |
+### Per-phase memory history — `stories15M_q80`
 
-### What changed
+| Phase            | Peak demand | Swap peak | Wall time (n=200) | Gate    |
+|------------------|------------:|----------:|------------------:|---------|
+| Phase 1 port     | 55.13 MB    | ~10 MB    | ~5m16s            | primary |
+| Phase 2 (arena + dequant) | 19.88 MB | 0    | 5m45s             | primary |
+| Phase 3 (#3 flags)| 19.88 MB   | 0         | 2m43s             | primary |
+| Phase 3 (#3 A+B)  | 19.88 MB   | 0         | 2m40.5s           | primary |
+| Phase 3 (#3+#4)   | **17.44 MB** | 0       | **2m59s**         | primary |
 
-- **Arena refactor (task #3)** consolidated the 15 scattered RunState
-  `calloc()` calls into one pre-allocated arena. Small direct peak-memory
-  win (fragmentation avoidance), big determinism win.
-- **On-the-fly row dequant (task #7)** killed the 35.16 MB fp32 token
-  embedding table that `memory_map_weights()` used to allocate up front.
-  Individual rows are dequantized per token on the embedding-lookup
-  path. Full before/after in `docs/phase2-memory.md` §"Post-Phase-2
-  measurements".
+- `stories15M` clears the Phase 1 primary 192-byte gate at every Phase 3
+  stage — no tolerance fallback needed despite `-ffast-math` and int8 KV.
+- Wall-time speedup Phase 2 → Phase 3 final: **1.93×** (5m45s → 2m59s).
+- Phase-3 #4 (int8 KV) traded ~18.5s of the Phase-3 #3 speed win for
+  2.44 MB of memory headroom. 15M didn't need the memory, but the
+  trade-off is good insurance for tighter configs and necessary for
+  42M to fit.
 
-### 42M is borderline
+### Per-phase memory history — `stories42M_q80`
 
-`stories42M_q80` runs to completion on 48 MB but pages ~30 MB through
-CWSDPMI's swap file. On real DOS hardware without a pre-configured swap
-there is no swap file — CWSDPMI's default is `-s` (swap enabled) but
-this writes to a swap file the user has to tolerate. Effective
-conclusions for Phase 5:
+| Phase            | Config            | Peak demand | Swap peak |
+|------------------|-------------------|------------:|----------:|
+| Phase 2 (arena + dequant) | seq_len=1024 | 74.50 MB   | ~30 MB    |
+| Phase 3 task #1  | `--max-seq-len 256` only | ~50.5 MB | ~4 MB    |
+| Phase 3 task #4  | seq_len=1024, int8 KV | 51.06 MB | ~4.5 MB  |
+| Phase 3 **final** | `--max-seq-len 256 + int8 KV` | **44.69 MB** | **0** |
 
-- **15M is the comfortable target** at 48 MB. No paging. Close to
-  tok/s ceiling of the hardware.
-- **42M is the stretch target** at 48 MB. Requires a writable swap
-  location (CF card fine, floppy impractical) and runs at roughly 1/N
-  tok/s of its paging ratio. The KV cache alone (2 × 8 × 1024 × 512 ×
-  4 = 32 MB) is the dominant new cost vs. 15M — see Phase 3 notes for
-  `--seq-len` truncation as a possible mitigation.
-- **64 MB+ hardware** runs 42M with headroom and no swap. This will
-  be the reference configuration if we ever get a period-correct 64 MB
-  system set up. Not the primary target.
+Neither task #1 nor task #4 alone is enough to take 42M under the
+46.55 MB physical ceiling. Together they are.
 
-Phase 3 candidates to push the ceiling further (see
-`docs/optimization-notes.md`):
+### 42M now runs unpaged on 48 MB hardware
 
-1. **Shorter effective `seq_len`** — the checkpoint advertises
-   `seq_len=1024` but real usage rarely needs that. Truncating the KV
-   allocation to an argv-configurable `max_seq_len` (default 256) drops
-   42M peak demand by 24 MB and eliminates all paging.
-2. **KV cache in int8** — would ~halve the 32 MB cost. Needs a
-   correctness diff since quantization is lossy.
-3. **Streaming-quantized logits** — 125 KB, much smaller lever; not a
-   priority.
+`stories42M_q80` previously paged ~30 MB through CWSDPMI's swap file
+on the 48 MB target. Phase 3 resolves this. Conclusions for Phase 5:
+
+- **15M is the comfortable target** at 48 MB, no paging, ~2m59s for
+  200 tokens under DOSBox-X.
+- **42M is the usable stretch target** at 48 MB with
+  `--max-seq-len 256`. No paging, full int8-KV-cache advantage. The
+  wall-clock number on 42M under DOSBox-X isn't captured here because
+  task #5's benchmark is the 15M canonical; capture in Phase 5 on
+  real hardware.
+- **64 MB+ hardware** runs 42M at full seq_len=1024 with fp32 KV if
+  correctness is paramount and CPU is free — reference configuration,
+  not primary target.
+
+### Phase 4 / post-v0.1 candidates
+
+- **Int-MAC attention inner loops.** Would likely recoup the ~18.5s
+  task-#4 regression. See `docs/phase3-notes.md` §"Task #4 Possible
+  follow-up".
+- **`--benchmark` CLI harness** — Phase 4 proper. Currently the gate
+  script times wall clock; Phase 4 adds per-phase cycle breakdowns.
+- **Real PODP5V83 numbers** — Phase 5 exit deliverable. DOSBox-X under-
+  represents the IDIV→SAR win (see `docs/optimization-notes.md`
+  §"What worked item 4"), so real-hardware wall time is expected to
+  look meaningfully different than the DOSBox numbers here.
 
 ## Phase 1 gate — regression fingerprint
 
 The byte-identical gate on `stories15M_q80 -t 0 -s 42 -n 200 -i "Once
-upon a time"` passes under all tested memory configs:
+upon a time"` still passes every stage through Phase 3:
 
-| Config            | Pre-Phase-2 | Post-#3 arena | Post-#7 dequant |
-|-------------------|:-----------:|:-------------:|:---------------:|
-| memsize = 48      | PASS        | PASS          | PASS            |
+| Config       | Pre-Phase-2 | Post-#3 arena | Post-#7 dequant | Phase 3 (flags) | Phase 3 (A+B+#4 int8 KV) |
+|--------------|:-----------:|:-------------:|:---------------:|:---------------:|:------------------------:|
+| memsize = 48 | PASS        | PASS          | PASS            | PASS            | PASS                     |
 
-All three produce the same 192-byte prefix (`3575c4cc…` md5 on the
-normalized prefix). Post-#7 now matches the full 200 tokens
-byte-identically to upstream `run_host`, per arena's report — the row
-dequant path apparently resolved a sub-ULP drift that was flipping a
-late-sequence argmax.
+All configurations produce the same 192-byte prefix (`3575c4cc…` md5
+on the normalized prefix). That means the Phase 1 primary gate
+continues to be the gate-of-record — Phase 3's tolerance gate is a
+safety net, not the expected pass path. Even with `-ffast-math`,
+dropped `-ffloat-store`, and per-head-quantized int8 KV cache, the
+30-token cross-toolchain fingerprint holds.
