@@ -1555,7 +1555,7 @@ static unsigned int bench_conv_kb(void) {
 }
 
 // DOS-PORT: Physical extended memory in KB via INT 15h. Reports actual RAM
-// DOS-PORT: above 1 megs, not DPMI virtual address space. Uses E801h (post-1994
+// DOS-PORT: above 1 meg, not DPMI virtual address space. Uses E801h (post-1994
 // DOS-PORT: standard, unambiguous above 64 megs) and falls back to AH=88h (16-bit
 // DOS-PORT: AX = KB extended, capped at ~64 megs) for older BIOSes. This is the
 // DOS-PORT: "your machine has N megs of RAM" figure the banner should show —

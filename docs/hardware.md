@@ -42,7 +42,7 @@ First real-hardware run landed 2026-04-24 on commit
 `256` configuration: real-DOS CWSDPMI has ~1.4 megs more overhead than
 DOSBox-X models, which pushed `--max-seq-len 256` about 1–2 megs over
 the physical ceiling and produced visible paging. `-L 128` saves
-~1 megs of KV cache and lands at 45.0 megs peak — right at the ceiling
+~1 meg of KV cache and lands at 45.0 megs peak — right at the ceiling
 but unpaged. `--benchmark` mode clamps its canonical 200-token target
 to the cap, so the 42M row reports 128 tokens; tok/s stays directly
 comparable to the 15M row.
