@@ -29,6 +29,13 @@
     #include <sys/mman.h>
     #endif
 #endif
+// DOS-PORT: <dpmi.h> for _go32_dpmi_get_free_memory_information() —
+// DOS-PORT: used by --benchmark to capture peak DPMI demand (see below).
+// DOS-PORT: Same field/struct used in the Phase 2 VELLM_MEMORY_TRACE
+// DOS-PORT: instrumentation that produced docs/phase2-memory.md.
+#if defined __DJGPP__
+#include <dpmi.h>
+#endif
 // ----------------------------------------------------------------------------
 // Globals
 int GS = 0; // group size global for quantization of the weights
@@ -1209,6 +1216,224 @@ void chat(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler,
 
 
 // ----------------------------------------------------------------------------
+// DOS-PORT: --benchmark machinery (Phase 4). Three pieces:
+// DOS-PORT:   1. CPUID-based CPU identification with a 486 fallback.
+// DOS-PORT:      CPUID is a Pentium-era instruction (introduced on later
+// DOS-PORT:      i486SX2/DX4 steppings). EFLAGS bit 21 (the ID flag) is
+// DOS-PORT:      writable iff CPUID is supported, so we probe via
+// DOS-PORT:      pushfl/popfl before issuing any cpuid instruction —
+// DOS-PORT:      otherwise an early-486 host would #UD.
+// DOS-PORT:   2. Peak-memory snapshot via _go32_dpmi_get_free_memory_information().
+// DOS-PORT:   3. Fixed-args generation loop with separated prompt/gen
+// DOS-PORT:      timing, so packager's bench/run.sh can grep tok/s.
+
+// DOS-PORT: Probe whether CPUID is supported.  Returns 1 if so, 0 if the
+// DOS-PORT: CPU is a pre-CPUID 486.  Pure inline asm — must come before
+// DOS-PORT: any direct cpuid invocation; otherwise we'd #UD on those hosts.
+// DOS-PORT: Only the i386 asm path is real; the host (x86_64) reference
+// DOS-PORT: build returns 0 so bench_cpu_brand falls through to "unknown".
+static int bench_has_cpuid(void) {
+#if defined __i386__
+    unsigned int after, before;
+    __asm__ volatile (
+        /* Save EFLAGS into `after`, copy to `before` as the original. */
+        "pushfl                  \n\t"
+        "popl   %0               \n\t"
+        "movl   %0, %1           \n\t"
+        /* Flip bit 21 (the ID flag) and try to load it back. */
+        "xorl   $0x00200000, %0  \n\t"
+        "pushl  %0               \n\t"
+        "popfl                   \n\t"
+        /* Read EFLAGS again — bit 21 stays flipped iff CPUID is supported. */
+        "pushfl                  \n\t"
+        "popl   %0               \n\t"
+        /* Restore the original EFLAGS so we don't perturb DPMI state. */
+        "pushl  %1               \n\t"
+        "popfl                   \n\t"
+        : "=&r" (after), "=&r" (before)
+        :
+        : "cc"
+    );
+    return ((after ^ before) & 0x00200000u) != 0;
+#else
+    /* Non-i386 host build: report "no CPUID" rather than emit broken asm. */
+    return 0;
+#endif
+}
+
+// DOS-PORT: Issue one cpuid leaf. ebx is clobbered by the instruction; we
+// DOS-PORT: list it as an output so gcc handles the register correctly under
+// DOS-PORT: every code model. DJGPP builds non-PIC by default, but the same
+// DOS-PORT: form is safe under -fPIC too. Only called when bench_has_cpuid()
+// DOS-PORT: returned 1, so the non-i386 branch should never execute it.
+static void bench_cpuid(unsigned int leaf,
+                        unsigned int *eax, unsigned int *ebx,
+                        unsigned int *ecx, unsigned int *edx) {
+#if defined __i386__
+    __asm__ volatile (
+        "cpuid"
+        : "=a" (*eax), "=b" (*ebx), "=c" (*ecx), "=d" (*edx)
+        : "a" (leaf)
+    );
+#else
+    (void)leaf;
+    *eax = *ebx = *ecx = *edx = 0;
+#endif
+}
+
+// DOS-PORT: Fill `out` (must be >= 64 bytes) with a CPU identification string.
+// DOS-PORT: Three tiers, in order:
+// DOS-PORT:   - extended-leaf brand string (Pentium 4 / Athlon era and later)
+// DOS-PORT:   - vendor + family/model/stepping from leaves 0/1 (P5/P6 era,
+// DOS-PORT:     including the target PODP5V83 — reports family 5 model 3)
+// DOS-PORT:   - "unknown (no CPUID)" for pre-CPUID 486s.
+static void bench_cpu_brand(char *out, size_t outsz) {
+    unsigned int a, b, c, d;
+    if (outsz == 0) return;
+    out[0] = '\0';
+    if (!bench_has_cpuid()) {
+        snprintf(out, outsz, "unknown (no CPUID)");
+        return;
+    }
+    /* How many extended leaves does this CPU support? */
+    bench_cpuid(0x80000000u, &a, &b, &c, &d);
+    if (a >= 0x80000004u) {
+        /* Brand string: 48 chars across three 16-byte register quadruples. */
+        unsigned int regs[12];
+        char buf[49];
+        char *p;
+        bench_cpuid(0x80000002u, &regs[0],  &regs[1],  &regs[2],  &regs[3]);
+        bench_cpuid(0x80000003u, &regs[4],  &regs[5],  &regs[6],  &regs[7]);
+        bench_cpuid(0x80000004u, &regs[8],  &regs[9],  &regs[10], &regs[11]);
+        memcpy(buf, regs, 48);
+        buf[48] = '\0';
+        /* Intel's brand strings are right-justified; trim leading spaces. */
+        p = buf;
+        while (*p == ' ') p++;
+        snprintf(out, outsz, "%s", p);
+    } else {
+        /* Pre-extended-leaf path. Vendor is EBX|EDX|ECX of leaf 0. */
+        unsigned int v0, v1, v2, v3;
+        char vendor[13];
+        unsigned int family, model, stepping;
+        bench_cpuid(0x0u, &v0, &v1, &v2, &v3);
+        memcpy(vendor + 0, &v1, 4);  /* EBX */
+        memcpy(vendor + 4, &v3, 4);  /* EDX */
+        memcpy(vendor + 8, &v2, 4);  /* ECX */
+        vendor[12] = '\0';
+        bench_cpuid(0x1u, &a, &b, &c, &d);
+        /* Pre-Pentium-Pro encoding — extended fields are zero on P5,
+         * so plain (a >> N) & 0xf is correct for the target hardware. */
+        family   = (a >> 8) & 0xfu;
+        model    = (a >> 4) & 0xfu;
+        stepping = a & 0xfu;
+        snprintf(out, outsz, "%s family %u model %u stepping %u",
+                 vendor, family, model, stepping);
+    }
+}
+
+// DOS-PORT: Strip directory components (both '/' and '\\') from a path.
+// DOS-PORT: Used to normalize the `model` field in the benchmark report so
+// DOS-PORT: it is identical on Linux and DOS regardless of how the user
+// DOS-PORT: invoked vellm.exe (e.g. C:\MODELS\STORIES15M_Q80.BIN).
+static const char *bench_basename(const char *path) {
+    const char *p = path;
+    const char *base = path;
+    for (; *p; p++) {
+        if (*p == '/' || *p == '\\') base = p + 1;
+    }
+    return base;
+}
+
+// DOS-PORT: Result struct for the benchmark generation loop.
+typedef struct {
+    int  prompt_tokens;   /* number of tokens encoded from the prompt */
+    int  gen_tokens;      /* number of tokens generated post-prompt */
+    long prompt_ms;       /* wall-time spent forwarding the prompt */
+    long gen_ms;          /* wall-time spent generating new tokens */
+    long total_ms;        /* prompt_ms + gen_ms */
+} BenchResult;
+
+// DOS-PORT: Parallel to generate(), but with separated prompt/gen timing
+// DOS-PORT: and no token decoding — the canonical benchmark workload.
+// DOS-PORT: Model-load time is excluded; clock starts at the first forward()
+// DOS-PORT: call. PIT granularity is ~55ms, fine for the multi-second
+// DOS-PORT: phases this measures.
+static void generate_benchmark(Transformer *transformer, Tokenizer *tokenizer,
+                               Sampler *sampler, char *prompt, int steps,
+                               BenchResult *result) {
+    int num_prompt_tokens = 0;
+    int *prompt_tokens;
+    long t_start, t_prompt_end, t_end;
+    int next, token, pos;
+
+    if (prompt == NULL) prompt = "";
+    prompt_tokens = (int*)malloc((strlen(prompt) + 3) * sizeof(int));
+    encode(tokenizer, prompt, 1, 0, prompt_tokens, &num_prompt_tokens);
+    if (num_prompt_tokens < 1) {
+        fprintf(stderr, "benchmark: empty prompt encoding\n");
+        exit(EXIT_FAILURE);
+    }
+
+    t_start = time_in_ms();
+    t_prompt_end = t_start;
+    token = prompt_tokens[0];
+    pos = 0;
+    next = 0;
+
+    while (pos < steps) {
+        float *logits = forward(transformer, token, pos);
+        if (pos < num_prompt_tokens - 1) {
+            next = prompt_tokens[pos + 1];
+        } else {
+            next = sample(sampler, logits);
+        }
+        pos++;
+        if (pos == num_prompt_tokens) {
+            /* Boundary between prompt forwarding and free-running generation. */
+            t_prompt_end = time_in_ms();
+        }
+        if (next == 1) break; /* BOS terminator from upstream */
+        token = next;
+    }
+    t_end = time_in_ms();
+
+    if (pos < num_prompt_tokens) {
+        /* `steps` cut us off before generation began; charge it all to prompt. */
+        t_prompt_end = t_end;
+    }
+
+    result->prompt_tokens = num_prompt_tokens;
+    result->gen_tokens    = pos - num_prompt_tokens;
+    if (result->gen_tokens < 0) result->gen_tokens = 0;
+    result->prompt_ms     = t_prompt_end - t_start;
+    result->gen_ms        = t_end - t_prompt_end;
+    result->total_ms      = t_end - t_start;
+
+    free(prompt_tokens);
+}
+
+// DOS-PORT: Read the largest free DPMI block in bytes (a proxy for "how
+// DOS-PORT: much memory has the process committed so far"). On non-DJGPP
+// DOS-PORT: hosts (the Linux reference build via Makefile.host) returns 0
+// DOS-PORT: so the report still emits valid numbers, just without a
+// DOS-PORT: meaningful peak-mem field.
+static unsigned long bench_dpmi_free_bytes(void) {
+#if defined __DJGPP__
+    __dpmi_free_mem_info info;
+    memset(&info, 0, sizeof(info));
+    if (_go32_dpmi_get_free_memory_information(&info) != 0) {
+        return 0;
+    }
+    /* The "largest contiguous free block" field — same one used in
+     * docs/phase2-memory.md. CWSDPMI populates it consistently. */
+    return info.largest_available_free_block_in_bytes;
+#else
+    return 0;
+#endif
+}
+
+// ----------------------------------------------------------------------------
 // CLI, include only if not testing
 #ifndef TESTING
 
@@ -1227,6 +1452,14 @@ void error_usage() {
     // DOS-PORT: --max-seq-len / -L cap KV cache allocation below the checkpoint's
     // DOS-PORT: baked-in seq_len (see build_transformer).
     fprintf(stderr, "  -L <int>    cap KV cache at N tokens (also: --max-seq-len N)\n");
+    // DOS-PORT: --benchmark / -B reproducible perf report (Phase 4); see
+    // DOS-PORT: generate_benchmark() above for the canonical workload.
+    fprintf(stderr, "  -B          benchmark mode (also: --benchmark);\n");
+    fprintf(stderr, "              ignores -t/-p/-s/-n/-i and runs the canonical workload\n");
+    fprintf(stderr, "              (-t 0 -s 42 -n 200 -i \"The old computer hummed to life\"),\n");
+    fprintf(stderr, "              prints a machine-readable report between\n");
+    fprintf(stderr, "              --- VELLM BENCHMARK --- and --- END --- markers.\n");
+    fprintf(stderr, "              --max-seq-len / -L is honored (useful for 42M).\n");
     exit(EXIT_FAILURE);
 }
 
@@ -1234,6 +1467,12 @@ int main(int argc, char *argv[]) {
 
     // DOS-PORT: unbuffered stdout is painfully slow on DOS; force 4KB full buffering.
     setvbuf(stdout, NULL, _IOFBF, 4096);
+
+    // DOS-PORT: capture the baseline DPMI free-block size before any
+    // DOS-PORT: malloc()s in this process. Used by --benchmark to compute
+    // DOS-PORT: peak demand at report time. Cheap (one DPMI int call), no
+    // DOS-PORT: harm to non-benchmark runs.
+    unsigned long bench_baseline_free = bench_dpmi_free_bytes();
 
     // default parameters
     char *checkpoint_path = NULL;  // e.g. out/model.bin
@@ -1248,33 +1487,64 @@ int main(int argc, char *argv[]) {
     // DOS-PORT: -1 sentinel means "use checkpoint's Config.seq_len as-is";
     // DOS-PORT: any positive value caps the KV cache allocation below it.
     int max_seq_len = -1;
+    // DOS-PORT: --benchmark / -B mode flag. Overrides user -t/-p/-s/-n/-i
+    // DOS-PORT: with the canonical workload after parsing completes.
+    int benchmark_mode = 0;
 
     // poor man's C argparse so we can override the defaults above from the command line
     if (argc >= 2) { checkpoint_path = argv[1]; } else { error_usage(); }
-    for (int i = 2; i < argc; i+=2) {
-        // do some basic validation
-        if (i + 1 >= argc) { error_usage(); } // must have arg after flag
-        if (argv[i][0] != '-') { error_usage(); } // must start with dash
-        // DOS-PORT: long-form --max-seq-len accepted alongside short -L (below).
-        // DOS-PORT: handled before the two-letter-flag check so --max-seq-len
-        // DOS-PORT: doesn't trip the strlen(argv[i]) != 2 reject.
-        if (strcmp(argv[i], "--max-seq-len") == 0) {
-            max_seq_len = atoi(argv[i + 1]);
-            continue;
+    // DOS-PORT: switched from `for (i = 2; ; i+=2)` to a manual-step loop so
+    // DOS-PORT: --benchmark / -B can consume zero values without skipping the
+    // DOS-PORT: next real flag.
+    {
+        int i = 2;
+        while (i < argc) {
+            if (argv[i][0] != '-') { error_usage(); } // must start with dash
+            // Boolean (no-value) flags first.
+            if (strcmp(argv[i], "--benchmark") == 0 || strcmp(argv[i], "-B") == 0) {
+                benchmark_mode = 1;
+                i += 1;
+                continue;
+            }
+            // Value-taking flags from here on; require an argument to follow.
+            if (i + 1 >= argc) { error_usage(); }
+            // DOS-PORT: long-form --max-seq-len accepted alongside short -L (below).
+            // DOS-PORT: handled before the two-letter-flag check so --max-seq-len
+            // DOS-PORT: doesn't trip the strlen(argv[i]) != 2 reject.
+            if (strcmp(argv[i], "--max-seq-len") == 0) {
+                max_seq_len = atoi(argv[i + 1]);
+                i += 2;
+                continue;
+            }
+            if (strlen(argv[i]) != 2) { error_usage(); } // must be -x (one dash, one letter)
+            // read in the args
+            if (argv[i][1] == 't') { temperature = atof(argv[i + 1]); }
+            else if (argv[i][1] == 'p') { topp = atof(argv[i + 1]); }
+            else if (argv[i][1] == 's') { rng_seed = atoi(argv[i + 1]); }
+            else if (argv[i][1] == 'n') { steps = atoi(argv[i + 1]); }
+            else if (argv[i][1] == 'i') { prompt = argv[i + 1]; }
+            else if (argv[i][1] == 'z') { tokenizer_path = argv[i + 1]; }
+            else if (argv[i][1] == 'm') { mode = argv[i + 1]; }
+            else if (argv[i][1] == 'y') { system_prompt = argv[i + 1]; }
+            // DOS-PORT: -L short alias for --max-seq-len (L = "length cap").
+            else if (argv[i][1] == 'L') { max_seq_len = atoi(argv[i + 1]); }
+            else { error_usage(); }
+            i += 2;
         }
-        if (strlen(argv[i]) != 2) { error_usage(); } // must be -x (one dash, one letter)
-        // read in the args
-        if (argv[i][1] == 't') { temperature = atof(argv[i + 1]); }
-        else if (argv[i][1] == 'p') { topp = atof(argv[i + 1]); }
-        else if (argv[i][1] == 's') { rng_seed = atoi(argv[i + 1]); }
-        else if (argv[i][1] == 'n') { steps = atoi(argv[i + 1]); }
-        else if (argv[i][1] == 'i') { prompt = argv[i + 1]; }
-        else if (argv[i][1] == 'z') { tokenizer_path = argv[i + 1]; }
-        else if (argv[i][1] == 'm') { mode = argv[i + 1]; }
-        else if (argv[i][1] == 'y') { system_prompt = argv[i + 1]; }
-        // DOS-PORT: -L short alias for --max-seq-len (L = "length cap").
-        else if (argv[i][1] == 'L') { max_seq_len = atoi(argv[i + 1]); }
-        else { error_usage(); }
+    }
+
+    // DOS-PORT: in --benchmark mode, override user-supplied perf-affecting
+    // DOS-PORT: flags with the canonical Phase 3 workload. Keeps benchmark
+    // DOS-PORT: results comparable across builds, machines, and operators.
+    if (benchmark_mode) {
+        temperature = 0.0f;
+        topp        = 0.9f;
+        rng_seed    = 42;
+        steps       = 200;
+        /* Locked Phase 4 prompt (per PLAN.md / team-lead spec). Do NOT change
+         * — bench/run.sh's reference numbers are pinned to this exact string. */
+        prompt      = "The old computer hummed to life";
+        mode        = "generate";
     }
 
     // DOS-PORT: validate --max-seq-len against -n before build_transformer so
@@ -1307,7 +1577,46 @@ int main(int argc, char *argv[]) {
     build_sampler(&sampler, transformer.config.vocab_size, temperature, topp, rng_seed);
 
     // run!
-    if (strcmp(mode, "generate") == 0) {
+    // DOS-PORT: --benchmark short-circuits the normal generate/chat dispatch
+    // DOS-PORT: with a fixed workload, separated prompt/gen timing, and a
+    // DOS-PORT: machine-readable report. No decoded tokens are printed so
+    // DOS-PORT: stdout stays cleanly grep-able by packager's bench/run.sh.
+    if (benchmark_mode) {
+        BenchResult br;
+        char cpu_brand[96];
+        unsigned long bench_end_free;
+        unsigned long peak_mem;
+        double prompt_tps, gen_tps;
+
+        generate_benchmark(&transformer, &tokenizer, &sampler, prompt, steps, &br);
+
+        bench_end_free = bench_dpmi_free_bytes();
+        /* baseline >= end normally; clamp to 0 if the host returned 0
+         * (non-DJGPP build) or if measurement noise inverted the order. */
+        peak_mem = (bench_baseline_free > bench_end_free)
+                   ? (bench_baseline_free - bench_end_free) : 0;
+
+        bench_cpu_brand(cpu_brand, sizeof(cpu_brand));
+
+        prompt_tps = (br.prompt_ms > 0)
+                     ? ((double)br.prompt_tokens * 1000.0 / (double)br.prompt_ms) : 0.0;
+        gen_tps    = (br.gen_ms > 0)
+                     ? ((double)br.gen_tokens    * 1000.0 / (double)br.gen_ms)    : 0.0;
+
+        printf("--- VELLM BENCHMARK ---\n");
+        printf("cpu        : %s\n", cpu_brand);
+        printf("model      : %s\n", bench_basename(checkpoint_path));
+        printf("ckpt bytes : %ld\n", (long)transformer.file_size);
+        printf("tokens     : %d\n", br.prompt_tokens + br.gen_tokens);
+        printf("prompt tok : %d\n", br.prompt_tokens);
+        printf("gen tok    : %d\n", br.gen_tokens);
+        printf("wall ms    : %ld\n", br.total_ms);
+        printf("prompt tok/s: %.2f\n", prompt_tps);
+        printf("gen tok/s  : %.2f\n", gen_tps);
+        printf("peak mem   : %lu\n", peak_mem);
+        printf("--- END ---\n");
+        fflush(stdout);
+    } else if (strcmp(mode, "generate") == 0) {
         generate(&transformer, &tokenizer, &sampler, prompt, steps);
     } else if (strcmp(mode, "chat") == 0) {
         chat(&transformer, &tokenizer, &sampler, prompt, system_prompt, steps);
