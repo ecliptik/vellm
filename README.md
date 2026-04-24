@@ -1,6 +1,6 @@
 # vellm
 
-vellm (pronounced *[vellum](https://en.wikipedia.org/wiki/Vellum)*, after the medieval parchment) is a port of [karpathy/llama2.c](https://github.com/karpathy/llama2.c) to MS-DOS 6.22. It runs [TinyStories](https://huggingface.co/karpathy/tinyllamas) 15M and 42M checkpoints — tiny transformer models trained on children's-story text — on an Intel [Pentium OverDrive](https://en.wikipedia.org/wiki/Pentium_OverDrive) via [DJGPP](https://www.delorie.com/djgpp/) and [CWSDPMI](https://en.wikipedia.org/wiki/DOS_Protected_Mode_Interface).
+vellm (pronounced *[vellum](https://en.wikipedia.org/wiki/Vellum)*, after the medieval parchment) is a port of [karpathy/llama2.c](https://github.com/karpathy/llama2.c) to MS-DOS 6.22. It runs [TinyStories](https://huggingface.co/karpathy/tinyllamas) 15M and 42M checkpoints — tiny transformer models trained on children's-story text — on 1990s Pentium-class hardware via [DJGPP](https://www.delorie.com/djgpp/) and [CWSDPMI](https://en.wikipedia.org/wiki/DOS_Protected_Mode_Interface).
 
 This project was 100% built agentically using [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
@@ -11,7 +11,7 @@ This project was 100% built agentically using [Claude Code](https://docs.anthrop
 <p align="center">
 <a href="docs/vellm-real-hw.jpeg"><img src="docs/vellm-real-hw.jpeg" width="540" alt="vellm running stories42M_q80 on a real Intel Pentium Overdrive 83 MHz under MS-DOS 6.22"></a>
 <br>
-<strong>vellm generating tokens on a Pentium OverDrive 83MHz</strong>
+<strong>vellm generating tokens on a <a href="https://en.wikipedia.org/wiki/Pentium_OverDrive">Pentium OverDrive</a> 83MHz</strong>
 </p>
 
 ---
