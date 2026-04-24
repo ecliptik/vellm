@@ -1,6 +1,6 @@
 # vellm
 
-vellm is a port of [karpathy/llama2.c](https://github.com/karpathy/llama2.c) (`runq.c`, the int8 variant) to MS-DOS 6.22. It runs [TinyStories](https://huggingface.co/karpathy/tinyllamas) 15M and 42M checkpoints — tiny transformer models trained on children's-story text — on an Intel [Pentium OverDrive](https://en.wikipedia.org/wiki/Pentium_OverDrive) via [DJGPP](https://www.delorie.com/djgpp/) and CWSDPMI. Pronounced *[vellum](https://en.wikipedia.org/wiki/Vellum)*, after the parchment that served as the primary writing surface before paper.
+vellm (pronounced *[vellum](https://en.wikipedia.org/wiki/Vellum)*, after the medieval parchment) is a port of [karpathy/llama2.c](https://github.com/karpathy/llama2.c) (`runq.c`, the int8 variant) to MS-DOS 6.22. It runs [TinyStories](https://huggingface.co/karpathy/tinyllamas) 15M and 42M checkpoints — tiny transformer models trained on children's-story text — on an Intel [Pentium OverDrive](https://en.wikipedia.org/wiki/Pentium_OverDrive) via [DJGPP](https://www.delorie.com/djgpp/) and CWSDPMI.
 
 This project was 100% built agentically using [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
