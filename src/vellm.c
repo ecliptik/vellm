@@ -35,6 +35,7 @@
 // DOS-PORT: instrumentation that produced docs/phase2-memory.md.
 #if defined __DJGPP__
 #include <dpmi.h>
+#include <sys/movedata.h>  // DOS-PORT: dosmemget for BIOS-date peek at F000:FFF5
 #endif
 // ----------------------------------------------------------------------------
 // Globals
@@ -1359,6 +1360,26 @@ typedef struct {
 // DOS-PORT: Model-load time is excluded; clock starts at the first forward()
 // DOS-PORT: call. PIT granularity is ~55ms, fine for the multi-second
 // DOS-PORT: phases this measures.
+// DOS-PORT: Progress throbber for long --benchmark runs. stderr-only (\r
+// DOS-PORT: to overwrite in place) so the machine-parseable stdout block
+// DOS-PORT: stays intact. At 0.27 tok/s on real PODP5V83 a 15M benchmark
+// DOS-PORT: is a ~12-minute wall, and 42M is ~30 — watching a blank
+// DOS-PORT: screen for that long is bad UX. Classic 4-char spinner
+// DOS-PORT: (|/-\) cycles on each token; position counter shows progress.
+static void bench_throbber(int pos, int steps) {
+    static const char spin[] = "|/-\\";
+    fprintf(stderr, "\r  %c  generating: %d/%d tokens ",
+            spin[pos & 3], pos, steps);
+    fflush(stderr);
+}
+static void bench_throbber_done(int pos, int steps) {
+    /* Leave a permanent line before the stdout block prints — useful on
+     * screenshots and when stderr+stdout interleave on the DOS console. */
+    fprintf(stderr, "\r  done: generated %d of %d tokens.          \n",
+            pos, steps);
+    fflush(stderr);
+}
+
 static void generate_benchmark(Transformer *transformer, Tokenizer *tokenizer,
                                Sampler *sampler, char *prompt, int steps,
                                BenchResult *result) {
@@ -1389,6 +1410,10 @@ static void generate_benchmark(Transformer *transformer, Tokenizer *tokenizer,
             next = sample(sampler, logits);
         }
         pos++;
+        // DOS-PORT: throbber update every token. Cheap stderr print,
+        // DOS-PORT: negligible vs. matmul; preserves progress visibility
+        // DOS-PORT: on the 12-min / 30-min real-HW runs.
+        bench_throbber(pos, steps);
         if (pos == num_prompt_tokens) {
             /* Boundary between prompt forwarding and free-running generation. */
             t_prompt_end = time_in_ms();
@@ -1397,6 +1422,8 @@ static void generate_benchmark(Transformer *transformer, Tokenizer *tokenizer,
         token = next;
     }
     t_end = time_in_ms();
+    // DOS-PORT: finalize the throbber line so the stdout block starts clean.
+    bench_throbber_done(pos, steps);
 
     if (pos < num_prompt_tokens) {
         /* `steps` cut us off before generation began; charge it all to prompt. */
@@ -1465,15 +1492,101 @@ static double bench_mhz_cached(void) {
     return cached;
 }
 
+// DOS-PORT: Conventional DOS memory in KB via INT 12h (real-mode BIOS call
+// DOS-PORT: bridged through DPMI). Returns 0 on host native. Nearly always
+// DOS-PORT: 640 KB on modern DOS; low value is a signal of a config issue.
+static unsigned int bench_conv_kb(void) {
+#if defined __DJGPP__
+    __dpmi_regs r;
+    memset(&r, 0, sizeof r);
+    __dpmi_int(0x12, &r);
+    return r.x.ax;
+#else
+    return 0;
+#endif
+}
+
+// DOS-PORT: CPU feature-flag summary from CPUID leaf 1 EDX. The flags we care
+// DOS-PORT: about for vellm's correctness/shape: FPU (bit 0), TSC (bit 4),
+// DOS-PORT: CMOV (bit 15), MMX (bit 23), SSE (bit 25). P54C has FPU + TSC,
+// DOS-PORT: NO CMOV/MMX/SSE — printing those absences is the real proof this
+// DOS-PORT: is running on pre-Pentium-II silicon. Shows present flags plus
+// DOS-PORT: "no MMX/SSE" when those are absent (the two most diagnostic).
+static void bench_cpu_features(char *out, size_t outsz) {
+#if defined __DJGPP__
+    if (!bench_has_cpuid()) { snprintf(out, outsz, "no CPUID"); return; }
+    unsigned int a, b, c, d;
+    bench_cpuid(0x1u, &a, &b, &c, &d);
+    int fpu  = (d >> 0)  & 1;
+    int tsc  = (d >> 4)  & 1;
+    int cmov = (d >> 15) & 1;
+    int mmx  = (d >> 23) & 1;
+    int sse  = (d >> 25) & 1;
+    snprintf(out, outsz, "%s%s%s%s%s%s%s",
+             fpu  ? "FPU "  : "",
+             tsc  ? "TSC "  : "",
+             cmov ? "CMOV " : "",
+             mmx  ? "MMX "  : "",
+             sse  ? "SSE "  : "",
+             (!mmx && !sse) ? "(no MMX/SSE)" : "",
+             (!fpu) ? "(no FPU!)" : "");
+    /* Trim trailing space if no parenthetical suffix was added. */
+    size_t n = strlen(out);
+    while (n > 0 && out[n-1] == ' ') out[--n] = 0;
+#else
+    snprintf(out, outsz, "native");
+#endif
+}
+
+// DOS-PORT: DOS version via INT 21h AH=30h. AL = major, AH = minor. On
+// DOS-PORT: MS-DOS 6.22 this returns 6.22. DR-DOS / PC-DOS are also valid.
+static void bench_dos_version(char *out, size_t outsz) {
+#if defined __DJGPP__
+    __dpmi_regs r;
+    memset(&r, 0, sizeof r);
+    r.h.ah = 0x30;
+    __dpmi_int(0x21, &r);
+    snprintf(out, outsz, "%u.%02u", r.h.al, r.h.ah);
+#else
+    snprintf(out, outsz, "n/a");
+#endif
+}
+
+// DOS-PORT: BIOS date string at physical F000:FFF5 — 8 ASCII bytes "MM/DD/YY"
+// DOS-PORT: present on every PC BIOS since the original IBM PC. Reading via
+// DOS-PORT: DJGPP's dosmemget() (linear address 0xFFFF5). Validates that the
+// DOS-PORT: bytes are printable before reporting; some BIOSes zero or pad the
+// DOS-PORT: region. Returns "unknown" on any anomaly.
+static void bench_bios_date(char *out, size_t outsz) {
+#if defined __DJGPP__
+    char buf[9];
+    dosmemget(0xFFFF5u, 8, buf);
+    buf[8] = 0;
+    for (int i = 0; i < 8; i++) {
+        if (buf[i] < 0x20 || buf[i] > 0x7E) {
+            snprintf(out, outsz, "unknown");
+            return;
+        }
+    }
+    snprintf(out, outsz, "%s", buf);
+#else
+    snprintf(out, outsz, "n/a");
+#endif
+}
+
 // DOS-PORT: Print a short hardware banner to stderr at main() entry.
 // DOS-PORT: Goes to stderr so stdout redirects (RUN.BAT > OUT.TXT) still
 // DOS-PORT: capture only inference output, but the banner remains on screen
-// DOS-PORT: for screenshot-as-proof-of-hardware. Three lines, 7-bit ASCII.
+// DOS-PORT: for screenshot-as-proof-of-hardware. Four lines, 7-bit ASCII.
 static void bench_hw_banner(FILE *out) {
-    char brand[64];
+    char brand[64], features[64], dosver[16], biosdate[16];
     bench_cpu_brand(brand, sizeof(brand));
+    bench_cpu_features(features, sizeof(features));
+    bench_dos_version(dosver, sizeof(dosver));
+    bench_bios_date(biosdate, sizeof(biosdate));
     double mhz = bench_mhz_cached();
     unsigned long dpmi_free = bench_dpmi_free_bytes();
+    unsigned int conv_kb = bench_conv_kb();
 
     fprintf(out, "vellm (%s)\n",
 #if defined __DJGPP__
@@ -1483,12 +1596,18 @@ static void bench_hw_banner(FILE *out) {
 #endif
     );
     if (mhz > 0.0) {
-        fprintf(out, "CPU: %s @ %.1f MHz\n", brand, mhz);
+        fprintf(out, "CPU: %s @ %.1f MHz [%s]\n", brand, mhz, features);
     } else {
-        fprintf(out, "CPU: %s\n", brand);
+        fprintf(out, "CPU: %s [%s]\n", brand, features);
     }
-    fprintf(out, "DPMI free: %.1f MB\n\n",
-            (double)dpmi_free / (1024.0 * 1024.0));
+    if (conv_kb > 0) {
+        fprintf(out, "MEM: %u KB conv, %.1f MB DPMI free\n",
+                conv_kb, (double)dpmi_free / (1024.0 * 1024.0));
+    } else {
+        fprintf(out, "MEM: %.1f MB DPMI free\n",
+                (double)dpmi_free / (1024.0 * 1024.0));
+    }
+    fprintf(out, "DOS: %s   BIOS: %s\n\n", dosver, biosdate);
     fflush(out);
 }
 
