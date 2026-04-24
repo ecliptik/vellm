@@ -1,6 +1,6 @@
 # vellm
 
-vellm is a port of [karpathy/llama2.c](https://github.com/karpathy/llama2.c) (`runq.c`, the int8 variant) to MS-DOS 6.22. It runs [TinyStories](https://huggingface.co/karpathy/tinyllamas) 15M and 42M checkpoints on an 83 MHz Intel [Pentium OverDrive](https://en.wikipedia.org/wiki/Pentium_OverDrive) with 48 megs of RAM, via [DJGPP](https://www.delorie.com/djgpp/) and CWSDPMI. Pronounced *[vellum](https://en.wikipedia.org/wiki/Vellum)*, after the parchment that served as the primary writing surface before paper.
+vellm is a port of [karpathy/llama2.c](https://github.com/karpathy/llama2.c) (`runq.c`, the int8 variant) to MS-DOS 6.22. It runs [TinyStories](https://huggingface.co/karpathy/tinyllamas) 15M and 42M checkpoints on an Intel [Pentium OverDrive](https://en.wikipedia.org/wiki/Pentium_OverDrive) via [DJGPP](https://www.delorie.com/djgpp/) and CWSDPMI. Pronounced *[vellum](https://en.wikipedia.org/wiki/Vellum)*, after the parchment that served as the primary writing surface before paper.
 
 [TinyStories](https://arxiv.org/abs/2305.07759) is a synthetic dataset of simple children's-story text, built by Microsoft Research to study how small a language model can be while still producing coherent English. The [tinyllamas](https://huggingface.co/karpathy/tinyllamas) checkpoints trained on it (15 and 42 million parameters, vs. 7+ billion for a typical modern LLM) are small enough to quantize to Q8_0 and fit in 48 megs of DOS memory.
 
