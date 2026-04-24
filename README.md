@@ -1,101 +1,131 @@
 # vellm
 
-**vellm runs a 15-million-parameter language model on an 83 MHz
-Intel Pentium OverDrive under MS-DOS 6.22 — emitting coherent
-TinyStories-domain text at 0.27 tokens per second on a 1995-era
-machine, with 48 MB of RAM and no SIMD.**
+vellm runs karpathy's [llama2.c](https://github.com/karpathy/llama2.c) (specifically `runq.c`, the int8-quantized variant) on MS-DOS 6.22. It targets 1990s Pentium-class hardware: TinyStories 15M and 42M checkpoints generate text at fractional tokens per second on an 83 MHz Intel Pentium Overdrive with 48 MB of RAM, using CWSDPMI for 32-bit protected mode and [DJGPP](https://www.delorie.com/djgpp/) as the cross-compiler. The name is pronounced *vellum*.
 
-<a href="docs/vellm-real-hw.jpeg"><img src="docs/vellm-real-hw.jpeg" width="540" alt="vellm running stories42M_q80 on a real Intel Pentium Overdrive 83 MHz under MS-DOS 6.22 — the open case shows the motherboard; the monitor shows the live benchmark with an accurate CPU/MHz/RAM banner"></a>
+[TinyStories](https://arxiv.org/abs/2305.07759) is a synthetic dataset of very short, simple stories — roughly the vocabulary and sentence complexity of a children's picture book — created by Microsoft Research in 2023 to study how small a language model can be and still produce coherent English. Karpathy's [stories15M and stories42M](https://huggingface.co/karpathy/tinyllamas) are tiny Llama-architecture models (15 and 42 million parameters, vs. the 7+ billion in a typical modern LLM) trained on that dataset. They produce grammatical, on-topic prose in the children's-story domain — *"Once upon a time there was a little girl named Lily. She loved to play outside..."* — and are small enough to quantize to Q8_0 (~17 and 42 MB on disk) and fit in a 48 MB DOS machine's memory. That's what makes this project possible at all.
 
-*Pentium OverDrive PODP5V83 (1995), MS-DOS 6.22, 48 MB RAM, BIOS 01/03/95, running `BENCH42.BAT` at `--max-seq-len 128`.*
+This project was 100% built agentically using [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
-A port of [karpathy/llama2.c](https://github.com/karpathy/llama2.c)
-(specifically `runq.c`, the int8-quantized variant) to MS-DOS 6.22,
-targeting a Pentium Overdrive 83 MHz system (PODP5V83, Socket 3,
-P54C, 48 MB RAM, CF-to-IDE, CWSDPMI r7 for DPMI). The name is
-pronounced *vellum*.
+<p align="center">
+<a href="#requirements">Requirements</a> · <a href="#features">Features</a> · <a href="#usage">Usage</a> · <a href="#benchmarks">Benchmarks</a> · <a href="#building">Building</a> · <a href="#deployment">Deployment</a> · <a href="#testing">Testing</a> · <a href="#acknowledgments">Acknowledgments</a> · <a href="#license">License</a>
+</p>
 
-The deliverable is a statically-linked `vellm.exe` that loads an
-int8-quantized TinyStories checkpoint and generates text on period
-hardware.
+<p align="center">
+<a href="docs/vellm-real-hw.jpeg"><img src="docs/vellm-real-hw.jpeg" width="540" alt="vellm running stories42M_q80 on a real Intel Pentium Overdrive 83 MHz under MS-DOS 6.22"></a>
+<br>
+<strong>vellm generating tokens with stories42M_q80 on a real Intel Pentium OverDrive 83 MHz</strong>
+</p>
 
-## Headline numbers
+---
 
-Canonical 200-token run, `stories15M_q80.bin`, seed 42, temp 0.
-Full matrix in [`bench/results.md`](./bench/results.md).
+## Requirements
 
-| Platform | Model | Tokens | Gen tok/s | Wall | Peak MB |
-|---|---|---:|---:|---:|---:|
-| **Real PODP5V83 (83 MHz)** | 15M q80 | 200 | **0.27** | **11m 56s** | 19.8 |
-| **Real PODP5V83 (83 MHz)** | 42M q80, `-L 128` | 128 | **0.11** | **19m 48s** | **45.0** |
-| DOSBox-X (cycles=fixed 90000) | 15M q80 | 200 | 0.99 | 2m 59s | 19.9 |
-| DOSBox-X (cycles=fixed 90000) | 42M q80, `-L 256` | 200 | 0.41 | 8m 11s | 46.1 |
-| Host Linux (i7-8700K, upstream runq.c) | 15M q80 | 200 | ~96 | ~2.1s | — |
+**Target hardware**
+- Intel Pentium-class CPU (P5, P54C, or OverDrive)
+- 48 MB RAM for `stories42M_q80`; 24 MB is enough for `stories15M_q80`
+- MS-DOS 6.22 or compatible (HIMEM.SYS required; EMM386 not recommended)
+- IDE / CF storage with ~50 MB free
+- CWSDPMI r7 (shipped in the CF package)
 
-42M on real hardware uses `--max-seq-len 128` to stay under CWSDPMI's
-physical ceiling (~45 MB usable after DPMI overhead on a 48 MB box);
-`--benchmark` clamps the canonical 200-token target to the cap, so the
-run emits 128 tokens instead. Tok/s is directly comparable regardless.
+**Build host**
+- Linux (Debian 13 tested; any modern distro should work)
+- `apt install dosbox-x build-essential bison flex texinfo libgmp-dev libmpfr-dev libmpc-dev wget curl unzip zlib1g-dev patch`
+- See [BUILDING.md](./BUILDING.md) for the full walk-through
 
-## What this is
+## Features
 
-A working int8 Llama-architecture inference engine for real-mode
-MS-DOS 6.22 on Pentium-class hardware. Everything runs in 32-bit
-protected mode via CWSDPMI. The checkpoint format is upstream's
-Q8_0 (`runq.c`'s "version 2" export) — we don't invent a new one.
-Output is byte-identical to upstream on the first ~30 tokens
-(Phase 1 correctness gate: 192-byte prefix diff).
+**Inference**
+- [TinyStories 15M and 42M](https://huggingface.co/karpathy/tinyllamas) quantized to Q8_0 via upstream `export.py --version 2`
+- On-the-fly row dequantization for the token-embedding table (saves 35 MB on 15M)
+- int8 KV cache with per-head fp32 scales (halves the KV footprint on 42M)
+- Single-arena runtime allocator — one `malloc` at startup, no per-token allocations, deterministic across runs
+- `--max-seq-len` cap clamps the KV cache below the checkpoint's native `seq_len` for memory-constrained configs
 
-## What this isn't
+**DOS integration**
+- Pure DJGPP build — cross-compiled on Linux, runs in 32-bit protected mode via CWSDPMI
+- Works with plain DOS 6.22 + HIMEM.SYS — no EMM386, no MSCDEX, no third-party driver required
+- 8.3 filenames throughout so DOS FAT sees everything natively (no LFN support on DOS 6.22)
+- `make cf-package` produces a self-contained `vellm-cf.tar.gz` / `.zip` bundle
 
-Not a demo of how far compiler optimization will push a 1995 CPU —
-we deliberately leave MMX/SSE off the table (the PODP5V83 predates
-MMX). Not a general-purpose LLM runtime; the model is a
-15M-parameter TinyStories checkpoint that produces children's
-stories in the style of the training corpus. Not a
-benchmark-shootout project; real-HW wall-clock is what it is.
+**Hardware detection**
+- Startup banner reports actual CPU brand (via CPUID family/model friendly-name lookup), measured MHz (rdtsc over BIOS tick window, ~0.1 MHz precision), physical RAM breakdown (INT 15h E801h), and DOS + BIOS versions
 
-## Build
+**Benchmarking**
+- `--benchmark` mode: fixed canonical prompt, seed, temp; emits a machine-parseable `--- VELLM BENCHMARK ---` block with `tokens`, `wall ms`, `prompt tok/s`, `gen tok/s`, `peak mem`
+- `bench/run.sh` harness drives DOSBox-X and parses results into [`bench/results.md`](./bench/results.md)
+- `BENCH.BAT` / `BENCH42.BAT` for direct on-hardware benchmarks, with a spinner + progress counter
 
-```bash
-./tools/build-djgpp.sh      # one-time: installs DJGPP cross-compiler
-make                        # cross-builds vellm.exe (+ stubedit fixup)
-make -f Makefile.host       # native Linux reference build → run_host
-tests/run-golden.sh         # correctness gate: first 192 bytes vs. golden
+**Correctness**
+- First 192 bytes of output byte-identical to upstream `runq.c` on the canonical prompt — a cross-toolchain fingerprint that proves tokenizer, attention, FFN, RMSNorm, RoPE, softmax, and argmax are all functioning identically
+- Tolerance fallback: ≥97% whitespace-word positional agreement (for optimizations that trade bit-identity for speed)
+
+## Usage
+
+After [deploying to DOS](#deployment), at a `C:\VELLM>` prompt:
+
+**Canonical demo**
+```
+C:\VELLM>RUN.BAT
+```
+Generates the same 200-token *"Once upon a time, there was a little girl named Lily..."* output as the pinned correctness fingerprint. Takes ~12 min on a Pentium/83.
+
+**Benchmarks**
+```
+C:\VELLM>BENCH.BAT           Canonical 200-token 15M benchmark, ~12 min
+C:\VELLM>BENCH42.BAT         42M at --max-seq-len 128, 128 tokens, ~20 min
 ```
 
-See [`BUILDING.md`](./BUILDING.md) for the full setup walk-through,
-prerequisites, and a common-errors section.
-
-## Quick run (DOSBox-X)
-
-```bash
-tests/run-golden.sh    # canonical prompt, diffs first 192 bytes vs golden
-bench/run.sh           # full benchmark matrix → bench/results.md
+Redirect to file to capture the `--- VELLM BENCHMARK ---` block for later transfer:
+```
+C:\VELLM>BENCH.BAT > BENCH15.TXT
+C:\VELLM>BENCH42.BAT > BENCH42.TXT
 ```
 
-Both scripts stage inputs to 8.3-safe names internally
-(`MODEL.BIN`, `TOKEN.BIN`) — DOS 6.22 has no LFN support.
+**Custom prompts**
+```
+REM deterministic (seed 42, greedy) - same output every run
+VELLM.EXE STORY15.BIN -z TOKEN.BIN -t 0 -s 42 -i "Once upon a time"
 
-Expected first paragraph: `Once upon a time, there was a little
-girl named Lily…` — the first 192 bytes match the pinned golden,
-regardless of whether you're on DOSBox-X or real PODP5V83.
+REM random sampling - varied output, time-seeded if -s omitted
+VELLM.EXE STORY15.BIN -z TOKEN.BIN -t 0.8 -i "In the old computer"
+
+REM longer generation (default is 256 tokens)
+VELLM.EXE STORY15.BIN -z TOKEN.BIN -t 0.8 -n 400 -i "A DOS prompt"
+
+REM 42M for better story quality - must cap seq_len to fit 48 MB
+VELLM.EXE STORY42.BIN -z TOKEN.BIN -L 128 -t 0.8 -i "The floppy drive"
+```
+
+**Flag reference**
+
+| Flag | Meaning | Typical |
+|---|---|---|
+| `-T N` | Temperature | `0` = greedy/deterministic; `0.8–1.0` = creative |
+| `-P N` | Top-p (nucleus) sampling | default `0.9` |
+| `-S N` | Random seed | omit for time-based; fix for reproducibility |
+| `-N N` | Max tokens to generate | default `256` |
+| `-I "..."` | Prompt string | quote it |
+| `-L N` | KV cache cap (`--max-seq-len`) | required for 42M on 48 MB: use `-L 128` |
+| `-Z PATH` | Tokenizer path | always `TOKEN.BIN` for stock models |
+| `--BENCHMARK` / `-B` | Machine-parseable benchmark mode | fixed seed/prompt/temp |
+
+TinyStories checkpoints are narrow-domain — prompts phrased as short children's-book openings produce the best output. Outside that domain the model still generates grammatical text but it won't be on-topic.
 
 ## Benchmarks
 
-Phase 4 delivered a reproducible harness. Numbers land in
-[`bench/results.md`](./bench/results.md), produced by
-`bench/run.sh` (host-side, drives DOSBox-X) or directly by the
-shipping `BENCH.BAT` / `BENCH42.BAT` on real hardware.
+Canonical 200-token run, seed 42, temp 0. Full matrix in [`bench/results.md`](./bench/results.md).
 
-```bash
-bench/run.sh                             # run full matrix under DOSBox-X
-bench/run.sh --scenario 15m-default      # run one scenario
-bench/run.sh --output bench/results.md   # write rows to file
-```
+| Platform | Model | Tokens | Gen tok/s | Wall | Peak MB |
+|---|---|---:|---:|---:|---:|
+| **Real PODP5V83 (83 MHz)** | [15M q80](https://huggingface.co/karpathy/tinyllamas) | 200 | **0.27** | **11m 56s** | 19.8 |
+| **Real PODP5V83 (83 MHz)** | [42M q80](https://huggingface.co/karpathy/tinyllamas), `-L 128` | 128 | **0.11** | **19m 48s** | **45.0** |
+| DOSBox-X (cycles=fixed 90000) | [15M q80](https://huggingface.co/karpathy/tinyllamas) | 200 | 0.99 | 2m 59s | 19.9 |
+| DOSBox-X (cycles=fixed 90000) | [42M q80](https://huggingface.co/karpathy/tinyllamas), `-L 256` | 200 | 0.41 | 8m 11s | 46.1 |
+| Host Linux (i7-8700K, upstream runq.c) | [15M q80](https://huggingface.co/karpathy/tinyllamas) | 200 | ~96 | ~2.1s | — |
 
-Sample `--- VELLM BENCHMARK ---` block, with tok/s values from the real
-PODP5V83 run:
+42M on real hardware uses `--max-seq-len 128` to stay under CWSDPMI's ~45 MB physical ceiling on a 48 MB box; `--benchmark` clamps the canonical 200-token target to the cap. [`docs/hardware.md`](./docs/hardware.md) documents the DOSBox-X ↔ real-hardware calibration — DOSBox-X at `cycles=fixed 90000` runs ~3.6× faster than real silicon for this workload.
+
+Sample `--- VELLM BENCHMARK ---` block (real PODP5V83 15M run):
 
 ```
 cpu        : Intel Pentium OverDrive
@@ -111,68 +141,61 @@ gen tok/s  : 0.27
 peak mem   : 19791872
 ```
 
-The banner printed to stderr at every run shows the actual hardware —
-friendly CPU name (via CPUID family/model lookup), measured clock rate
-(rdtsc vs. BIOS tick, ~0.1 MHz precision), physical RAM breakdown,
-and DOS + BIOS versions. See the photo above for the banner rendered
-live on target hardware.
+The banner printed to stderr at every startup shows the actual hardware — friendly CPU name, measured MHz, RAM breakdown, DOS + BIOS versions. Visible in the screenshot above.
 
-[`docs/hardware.md`](./docs/hardware.md) documents the DOSBox-X vs
-real-hardware calibration — DOSBox-X at `cycles=fixed 90000` runs
-~3.56× faster than the real PODP5V83 for this workload. Memory
-footprint matches the emulator projection to the byte.
+## Building
+
+Requires the DJGPP cross-compiler. One-time install (~30–60 min):
+
+```bash
+./tools/build-djgpp.sh
+```
+
+This wraps Andrew Wu's [build-djgpp](https://github.com/andrewwutw/build-djgpp) to install DJGPP 12.2.0 into `$HOME/emulators/tools/djgpp/`. Override with `DJGPP_PREFIX=/path/to/djgpp`.
+
+Then build vellm:
+
+```bash
+make                        # cross-builds vellm.exe
+make -f Makefile.host       # native Linux reference build (run_host)
+tests/run-golden.sh         # correctness gate: first 192 bytes vs. golden
+```
+
+See [BUILDING.md](./BUILDING.md) for prerequisites, the full dependency list, and a common-errors section.
 
 ## Deployment
 
-`make cf-package` produces a CF-card-ready bundle in two formats:
-
-- `dist/vellm-cf.zip` (Windows-mount-and-copy workflow)
-- `dist/vellm-cf.tar.gz` (Linux scp workflow)
-
-Both contain `VELLM.EXE`, `CWSDPMI.EXE` + license, tokenizer +
-model, and the batch-file runners (`RUN.BAT` for the demo,
-`BENCH.BAT` / `BENCH42.BAT` for benchmarks), plus a DOS-formatted
-`README.TXT`. If `models/stories42M_q80.bin` is present at build
-time, the 42M model and its benchmark are included.
-
-## Status
-
-Phases 0–5 complete. v0.1 ships with both 15M and 42M confirmed
-on real Intel Pentium Overdrive hardware. See [`PLAN.md`](./PLAN.md)
-for the roadmap and post-v0.1 stretch work.
-
-## Layout
-
-```
-src/               vellm.c (forked from runq.c with DOS-PORT deltas)
-tools/             build-djgpp.sh, dosbox-run.sh, dosbox-launch.sh,
-                   dosbox-x.conf (Pentium/48 MB profile)
-tests/             run-golden.sh, golden/once_upon_a_time.txt
-bench/             run.sh (host harness), BENCH.BAT / BENCH42.BAT
-                   (DOS-side), results.md (reproducible numbers)
-docs/              phase0…phase5 notes, hardware.md, format.md,
-                   fine-tune.md, optimization-notes.md
-vendor/            cwsdpmi/ (vendored DPMI host), llama2.c/ (pinned
-                   upstream snapshot with UPSTREAM_SHA)
-models/            gitignored; drop stories15M_q80.bin,
-                   stories42M_q80.bin, tokenizer.bin here
-Makefile           cross-DJGPP build
-Makefile.host      native Linux reference build
+```bash
+make cf-package             # produces dist/vellm-cf.{zip,tar.gz}
 ```
 
-## Credits
+Contents: `VELLM.EXE`, `CWSDPMI.EXE` + license, tokenizer + model(s), batch-file runners (`RUN.BAT`, `BENCH.BAT`, `BENCH42.BAT`), DOS-formatted `README.TXT`. If `models/stories42M_q80.bin` is present at build time, the 42M model and its benchmark are included.
 
-Built on Andrej Karpathy's
-[llama2.c](https://github.com/karpathy/llama2.c) — `vellm`
-is a port of `runq.c` (the int8 variant) to DJGPP +
-CWSDPMI. Upstream SHA pinned in
-[`vendor/llama2.c/UPSTREAM_SHA`](./vendor/llama2.c/UPSTREAM_SHA);
-full attribution matrix in
-[`THIRD-PARTY.md`](./THIRD-PARTY.md).
+Mount a FAT-formatted CF card and extract:
+
+```bash
+tar xzf dist/vellm-cf.tar.gz -C /mnt/cf
+```
+
+Then boot your DOS machine and run `RUN.BAT` or one of the benchmark scripts.
+
+## Testing
+
+- **Pre-hardware**: [DOSBox-X](https://dosbox-x.com/) 2025.02.01 with `tools/dosbox-x.conf` (Pentium, 48 MB, `cycles=fixed 90000`). `tests/run-golden.sh` runs the correctness gate headless; `bench/run.sh` drives the benchmark matrix.
+- **Real hardware**: Intel Pentium Overdrive PODP5V83 on an Anigma LP4IP1 board, 48 MB RAM, MS-DOS 6.22, CF-to-IDE storage. The CF package drops straight onto the card.
+
+## Acknowledgments
+
+- **[Claude Code](https://claude.ai/code)** by [Anthropic](https://www.anthropic.com/)
+- **[llama2.c](https://github.com/karpathy/llama2.c)** by Andrej Karpathy — vellm ports `runq.c` with a minimal annotated diff. Upstream SHA pinned at [`vendor/llama2.c/UPSTREAM_SHA`](./vendor/llama2.c/UPSTREAM_SHA). MIT license.
+- **[TinyStories](https://arxiv.org/abs/2305.07759)** — Ronen Eldan and Yuanzhi Li. Model checkpoints trained on the TinyStories dataset by Karpathy.
+- **[DJGPP](https://www.delorie.com/djgpp/)** by DJ Delorie and many contributors — the 32-bit DOS GCC port used as the cross-compiler.
+- **[CWSDPMI](http://sandmann.dotster.com/cwsdpmi/)** by Charles W. Sandmann — the DPMI host required at DOS runtime. Redistributed per its license (see [`vendor/cwsdpmi/`](./vendor/cwsdpmi/)).
+- **[DOSBox-X](https://dosbox-x.com/)** — pre-hardware testing environment.
+- **[build-djgpp](https://github.com/andrewwutw/build-djgpp)** by Andrew Wu — the cross-toolchain installer `tools/build-djgpp.sh` wraps.
+
+Full attribution matrix: [THIRD-PARTY.md](./THIRD-PARTY.md).
 
 ## License
 
-MIT. See [`LICENSE`](./LICENSE) for vellm itself, `vendor/cwsdpmi/`
-for CWSDPMI terms (Sandmann's distribution license), and
-[`THIRD-PARTY.md`](./THIRD-PARTY.md) for the complete upstream
-attribution matrix.
+MIT. See [LICENSE](./LICENSE) for vellm itself, [`vendor/cwsdpmi/`](./vendor/cwsdpmi/) for CWSDPMI's redistribution terms, [`vendor/llama2.c/LICENSE`](./vendor/llama2.c/LICENSE) for upstream llama2.c, and [THIRD-PARTY.md](./THIRD-PARTY.md) for the complete attribution matrix.
