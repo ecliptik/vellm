@@ -1433,6 +1433,65 @@ static unsigned long bench_dpmi_free_bytes(void) {
 #endif
 }
 
+// DOS-PORT: Measure CPU clock rate by reading rdtsc across a known wall-time
+// DOS-PORT: interval (3 BIOS timer ticks ≈ 165 ms). Result is MHz.
+// DOS-PORT: Useful as proof-of-hardware in screenshots and as an mhz field in
+// DOS-PORT: the --benchmark report. On a 83 MHz PODP5V83 this reads ~83.0;
+// DOS-PORT: on DOSBox-X with cycles=fixed N it reflects the emulated rate.
+// DOS-PORT: Returns 0.0 on host native builds (where we don't care) and on
+// DOS-PORT: pre-Pentium CPUs that lack rdtsc (same gate as CPUID presence).
+static double bench_measure_mhz(void) {
+#if defined __DJGPP__
+    if (!bench_has_cpuid()) return 0.0;  // rdtsc is Pentium-era alongside CPUID
+    unsigned long long t0, t1;
+    clock_t c0, c1;
+    __asm__ volatile("rdtsc" : "=A"(t0));
+    c0 = clock();
+    do { c1 = clock(); } while (c1 - c0 < 3);
+    __asm__ volatile("rdtsc" : "=A"(t1));
+    double elapsed_s = (double)(c1 - c0) / (double)CLOCKS_PER_SEC;
+    if (elapsed_s <= 0.0) return 0.0;
+    return ((double)(t1 - t0)) / (elapsed_s * 1.0e6);
+#else
+    return 0.0;
+#endif
+}
+
+// DOS-PORT: Cache the MHz measurement so banner + benchmark report share one
+// DOS-PORT: 165 ms calibration instead of paying it twice.
+static double bench_mhz_cached(void) {
+    static double cached = -1.0;
+    if (cached < 0.0) cached = bench_measure_mhz();
+    return cached;
+}
+
+// DOS-PORT: Print a short hardware banner to stderr at main() entry.
+// DOS-PORT: Goes to stderr so stdout redirects (RUN.BAT > OUT.TXT) still
+// DOS-PORT: capture only inference output, but the banner remains on screen
+// DOS-PORT: for screenshot-as-proof-of-hardware. Three lines, 7-bit ASCII.
+static void bench_hw_banner(FILE *out) {
+    char brand[64];
+    bench_cpu_brand(brand, sizeof(brand));
+    double mhz = bench_mhz_cached();
+    unsigned long dpmi_free = bench_dpmi_free_bytes();
+
+    fprintf(out, "vellm (%s)\n",
+#if defined __DJGPP__
+            "MS-DOS / DJGPP"
+#else
+            "host native"
+#endif
+    );
+    if (mhz > 0.0) {
+        fprintf(out, "CPU: %s @ %.1f MHz\n", brand, mhz);
+    } else {
+        fprintf(out, "CPU: %s\n", brand);
+    }
+    fprintf(out, "DPMI free: %.1f MB\n\n",
+            (double)dpmi_free / (1024.0 * 1024.0));
+    fflush(out);
+}
+
 // ----------------------------------------------------------------------------
 // CLI, include only if not testing
 #ifndef TESTING
@@ -1473,6 +1532,11 @@ int main(int argc, char *argv[]) {
     // DOS-PORT: peak demand at report time. Cheap (one DPMI int call), no
     // DOS-PORT: harm to non-benchmark runs.
     unsigned long bench_baseline_free = bench_dpmi_free_bytes();
+
+    // DOS-PORT: hardware banner to stderr — visible in screenshots as proof of
+    // DOS-PORT: actual CPU + MHz + DPMI on the host running this. Doesn't
+    // DOS-PORT: pollute stdout, so RUN.BAT > OUT.TXT captures only inference.
+    bench_hw_banner(stderr);
 
     // default parameters
     char *checkpoint_path = NULL;  // e.g. out/model.bin
@@ -1605,6 +1669,9 @@ int main(int argc, char *argv[]) {
 
         printf("--- VELLM BENCHMARK ---\n");
         printf("cpu        : %s\n", cpu_brand);
+        // DOS-PORT: measured MHz — cached from the startup banner's
+        // DOS-PORT: calibration; matches the stderr banner value.
+        printf("cpu mhz    : %.1f\n", bench_mhz_cached());
         printf("model      : %s\n", bench_basename(checkpoint_path));
         printf("ckpt bytes : %ld\n", (long)transformer.file_size);
         printf("tokens     : %d\n", br.prompt_tokens + br.gen_tokens);
