@@ -163,6 +163,193 @@ dist: vellm.exe
 		rm -rf "$$tmp" && \
 		echo "dist/vellm.zip"
 
+# --- cf-package (Phase 4) -----------------------------------------------------
+#
+# `make cf-package` produces a richer deploy bundle than `make dist` —
+# same core files plus DOS-formatted LICENSE.TXT + README.TXT and the
+# Phase 4 benchmark runners (BENCH.BAT, BENCH42.BAT). Ships BOTH a
+# .zip (Windows-mount-and-copy workflow) and a .tar.gz (Linux scp
+# workflow) with identical contents.
+#
+# If models/stories42M_q80.bin is present in the tree at package-build
+# time, the 42M model and BENCH42.BAT are included as well. If absent,
+# the package still builds (15M only) and README.TXT notes the omission.
+
+MODEL_42M_BIN := models/stories42M_q80.bin
+
+BENCH_BAT      := bench/BENCH.BAT
+BENCH42_BAT    := bench/BENCH42.BAT
+
+CF_STAGE       := dist/vellm-cf
+CF_ZIP         := dist/vellm-cf.zip
+CF_TARGZ       := dist/vellm-cf.tar.gz
+
+# README.TXT template. Rendered with CRLF line endings, under 80 cols,
+# 7-bit ASCII only (no em-dashes, no smart quotes). The two `@42M@`
+# markers are substituted at package time:
+#   - `@42M@`             → either the 42M block or the empty string
+#   - `@REPO_URL@`        → from `git remote get-url origin`
+#
+# Keeping this in the Makefile (rather than a separate file) so the
+# package invariant (readme text ↔ package contents) stays in one place.
+define CF_README_TEMPLATE
+vellm - TinyStories inference on MS-DOS 6.22
+============================================
+
+vellm is a port of karpathy/llama2.c's int8-quantized inference
+(runq.c) to MS-DOS 6.22 + DJGPP + CWSDPMI, targeting a Pentium
+Overdrive 83 MHz (Socket 3, P54C core, no MMX) with 48 MB of RAM.
+It runs the TinyStories 15M and 42M Q8_0 checkpoints from upstream.
+
+HOW TO RUN
+----------
+
+ 1. Boot DOS (MS-DOS 6.22 or compatible).
+ 2. Change to the directory holding VELLM.EXE:
+        C:\>CD \VELLM
+ 3. Run one of the batch files:
+
+        RUN.BAT         Canonical demo. Seed 42, temp 0, 200 tokens,
+                        prompt "Once upon a time".
+        BENCH.BAT       Reproducible benchmark on stories15M_q80.
+                        Prints a parseable "--- VELLM BENCHMARK ---"
+                        block at the end. ~3 min on a Pentium/83.
+@42M_RUN@
+WHAT YOU SHOULD SEE
+-------------------
+
+The canonical demo opens with:
+
+    Once upon a time, there was a little girl named Lily.
+
+If the first sentence matches, the model is loading correctly and
+the DPMI host is working. Divergence after ~30 tokens between DOS
+and a Linux reference run is expected (floating-point rounding
+differences between DJGPP's libm and modern glibc); the first
+paragraph is the cross-toolchain correctness fingerprint.
+
+CWSDPMI
+-------
+
+CWSDPMI.EXE is the DPMI host that DJGPP-built programs need under
+plain DOS. It MUST be in the same directory as VELLM.EXE the first
+time you run it; after that CWSDPMI self-installs into XMS. If you
+see "No DPMI host available" at startup, check that CWSDPMI.EXE is
+alongside VELLM.EXE. License is in CWSDPMI.DOC.
+
+MEMORY
+------
+
+Requires approximately 20 MB of free DPMI memory for the 15M model
+and 45 MB for 42M with --MAX-SEQ-LEN 256. The 48 MB target machine
+has enough headroom for both configurations with no CWSDPMI.SWP
+growth. See docs/phase3-notes.md in the repo for the full matrix.
+
+UPDATES
+-------
+
+Source and full documentation:
+    @REPO_URL@
+
+This package contains:
+    VELLM.EXE           inference binary (DJGPP cross-built)
+    CWSDPMI.EXE         DPMI host
+    CWSDPMI.DOC         CWSDPMI license / readme
+    LICENSE.TXT         vellm license (MIT)
+    README.TXT          this file
+    RUN.BAT             canonical demo runner
+    BENCH.BAT           15M benchmark runner
+    STORIES15M_Q80.BIN  TinyStories 15M Q8_0 checkpoint
+    TOKENIZER.BIN       Llama 32K-vocab tokenizer@42M_LIST@
+endef
+export CF_README_TEMPLATE
+
+# Snippet spliced at @42M_RUN@ when 42M is included. Leading blank
+# line separates it from BENCH.BAT; trailing blank line keeps the
+# following section header from running into it.
+define CF_README_42M_RUN
+
+        BENCH42.BAT     Same benchmark on stories42M_q80 with
+                        --MAX-SEQ-LEN 256 (42M fits under the 48 MB
+                        ceiling with no swap in this configuration).
+                        ~8 min on a Pentium/83.
+
+endef
+export CF_README_42M_RUN
+
+# Snippet spliced at @42M_LIST@ when 42M is included. No leading
+# newline (the template splice point is immediately after the
+# tokenizer listing line).
+define CF_README_42M_LIST
+
+    STORIES42M_Q80.BIN  TinyStories 42M Q8_0 checkpoint (optional)
+    BENCH42.BAT         42M benchmark runner (optional)
+endef
+export CF_README_42M_LIST
+
+# crlf = apply Unix-LF -> DOS-CRLF normalization to stdin, emit to stdout.
+# Used for LICENSE.TXT and README.TXT generation. awk is available
+# everywhere; `unix2dos` is not.
+#
+# We strip any existing CR first (idempotent) then add one at EOL.
+CRLF := awk 'BEGIN{ORS="\r\n"} {sub(/\r$$/, ""); print}'
+
+.PHONY: cf-package
+cf-package: vellm.exe
+	@test -f "$(CWSDPMI_EXE)"      || (echo "error: $(CWSDPMI_EXE) missing" >&2; exit 1)
+	@test -f "$(CWSDPMI_DOC)"      || (echo "error: $(CWSDPMI_DOC) missing" >&2; exit 1)
+	@test -f "$(MODEL_BIN)"        || (echo "error: $(MODEL_BIN) missing — download from karpathy/llama2.c release" >&2; exit 1)
+	@test -f "$(TOKENIZER_BIN)"    || (echo "error: $(TOKENIZER_BIN) missing — download from karpathy/llama2.c release" >&2; exit 1)
+	@test -f "$(BENCH_BAT)"        || (echo "error: $(BENCH_BAT) missing — Phase 4 task #2 not applied?" >&2; exit 1)
+	@test -f "$(BENCH42_BAT)"      || (echo "error: $(BENCH42_BAT) missing — Phase 4 task #2 not applied?" >&2; exit 1)
+	@test -f LICENSE               || (echo "error: LICENSE missing" >&2; exit 1)
+	@rm -rf "$(CF_STAGE)"
+	@rm -f  "$(CF_ZIP)" "$(CF_TARGZ)"
+	@mkdir -p "$(CF_STAGE)"
+	@install -m 0644 vellm.exe            "$(CF_STAGE)/VELLM.EXE"
+	@install -m 0644 $(CWSDPMI_EXE)       "$(CF_STAGE)/CWSDPMI.EXE"
+	@install -m 0644 $(CWSDPMI_DOC)       "$(CF_STAGE)/CWSDPMI.DOC"
+	@install -m 0644 $(MODEL_BIN)         "$(CF_STAGE)/STORIES15M_Q80.BIN"
+	@install -m 0644 $(TOKENIZER_BIN)     "$(CF_STAGE)/TOKENIZER.BIN"
+	@$(CRLF) < $(BENCH_BAT) > "$(CF_STAGE)/BENCH.BAT"
+	@printf '@echo off\r\nset DPMI=CWSDPMI.EXE\r\n%s\r\n' '$(RUN_BAT_CMD)' > "$(CF_STAGE)/RUN.BAT"
+	@$(CRLF) < LICENSE > "$(CF_STAGE)/LICENSE.TXT"
+	@# Conditionally include 42M: if the checkpoint is present, copy
+	@# it and BENCH42.BAT, and splice the 42M blocks into README.TXT.
+	@# When absent, the two markers are replaced with empty strings.
+	@url='$(shell git remote get-url origin 2>/dev/null || echo unknown)'; \
+	if [ -f "$(MODEL_42M_BIN)" ]; then \
+	    install -m 0644 $(MODEL_42M_BIN)   "$(CF_STAGE)/STORIES42M_Q80.BIN"; \
+	    $(CRLF) < $(BENCH42_BAT)          > "$(CF_STAGE)/BENCH42.BAT"; \
+	    run_blk="$$CF_README_42M_RUN"; \
+	    list_blk="$$CF_README_42M_LIST"; \
+	    echo "cf-package: 42M included (STORIES42M_Q80.BIN + BENCH42.BAT)"; \
+	else \
+	    run_blk=""; \
+	    list_blk=""; \
+	    echo "cf-package: 42M not found at $(MODEL_42M_BIN) — 15M-only package"; \
+	fi; \
+	printf '%s\n' "$$CF_README_TEMPLATE" | \
+	    awk -v blk="$$run_blk"  'BEGIN{RS="@42M_RUN@"}  NR==1{printf "%s", $$0; next} {printf "%s%s", blk, $$0}' | \
+	    awk -v blk="$$list_blk" 'BEGIN{RS="@42M_LIST@"} NR==1{printf "%s", $$0; next} {printf "%s%s", blk, $$0}' | \
+	    awk -v url="$$url"      '{gsub(/@REPO_URL@/, url); print}' | \
+	    $(CRLF) > "$(CF_STAGE)/README.TXT"
+	@# Produce both archives from the staged directory. `-C` on tar so
+	@# the archive roots at "./" rather than "dist/vellm-cf/" — the
+	@# operator extracts into their own named dir.
+	@(cd "$(CF_STAGE)" && zip -q -r "$(CURDIR)/$(CF_ZIP)" .)
+	@tar -C "$(CF_STAGE)" -czf "$(CF_TARGZ)" .
+	@echo "cf-package: built $(CF_ZIP) ($$(stat -c '%s' $(CF_ZIP)) bytes)"
+	@echo "cf-package: built $(CF_TARGZ) ($$(stat -c '%s' $(CF_TARGZ)) bytes)"
+	@# Size-budget sanity checks. 42M present: 50 MB cap. 15M only: 12 MB cap.
+	@if [ -f "$(MODEL_42M_BIN)" ]; then BUDGET=52428800; else BUDGET=12582912; fi; \
+	    for a in $(CF_ZIP) $(CF_TARGZ); do \
+	        sz=$$(stat -c '%s' "$$a"); \
+	        if [ "$$sz" -gt "$$BUDGET" ]; then \
+	            echo "cf-package: WARNING $$a is $$sz bytes, over budget $$BUDGET" >&2; \
+	        fi; \
+	    done
+
 # --- Housekeeping -------------------------------------------------------------
 
 .PHONY: clean
