@@ -97,9 +97,21 @@ typedef struct {
     float *v; // value (dim,)
     float *att; // buffer for scores/attention values (n_heads, seq_len)
     float *logits; // output logits
-    // kv cache
-    float* key_cache;   // (layer, seq_len, dim)
-    float* value_cache; // (layer, seq_len, dim)
+    // DOS-PORT: int8-quantized KV cache with a per-head fp32 scale. Upstream
+    // DOS-PORT: stores the fp32 k/v vectors verbatim — on stories42M at its
+    // DOS-PORT: baked-in seq_len=1024 that's 32 MB of cache, blowing through
+    // DOS-PORT: the 48 MB DPMI ceiling. Per-head scale (one float per pos
+    // DOS-PORT: per layer per kv-head) gives ~3.8× reduction with minimal
+    // DOS-PORT: quantization error — each attention inner loop already walks
+    // DOS-PORT: one head at a time, so the scale is a single fp32 multiply
+    // DOS-PORT: outside the dot product. Lossy; validated by the Phase 3
+    // DOS-PORT: tolerance gate (docs/phase3-notes.md §"Task #4"). Layout:
+    // DOS-PORT:   *_cache_q  (n_layers, seq_len, kv_dim)          int8
+    // DOS-PORT:   *_cache_s  (n_layers, seq_len, n_kv_heads)      fp32
+    int8_t* key_cache_q;   // (layer, seq_len, kv_dim) quantized keys
+    float*  key_cache_s;   // (layer, seq_len, n_kv_heads) per-head scales
+    int8_t* value_cache_q; // (layer, seq_len, kv_dim) quantized values
+    float*  value_cache_s; // (layer, seq_len, n_kv_heads) per-head scales
 } RunState;
 
 // DOS-PORT: single pre-allocated arena replaces the 15 scattered calloc() calls
@@ -180,8 +192,12 @@ static size_t runstate_arena_size(Config *p) {
     n += arena_align16((size_t)kv_dim * sizeof(float));                             // v
     n += arena_align16((size_t)p->n_heads * p->seq_len * sizeof(float));            // att
     n += arena_align16((size_t)p->vocab_size * sizeof(float));                      // logits
-    n += arena_align16((size_t)p->n_layers * p->seq_len * kv_dim * sizeof(float));  // key_cache
-    n += arena_align16((size_t)p->n_layers * p->seq_len * kv_dim * sizeof(float));  // value_cache
+    // DOS-PORT: int8 KV cache (Phase 3 task #4). Quantized values plus a
+    // DOS-PORT: per-head fp32 scale — see RunState definition for rationale.
+    n += arena_align16((size_t)p->n_layers * p->seq_len * kv_dim * sizeof(int8_t)); // key_cache_q
+    n += arena_align16((size_t)p->n_layers * p->seq_len * p->n_kv_heads * sizeof(float)); // key_cache_s
+    n += arena_align16((size_t)p->n_layers * p->seq_len * kv_dim * sizeof(int8_t)); // value_cache_q
+    n += arena_align16((size_t)p->n_layers * p->seq_len * p->n_kv_heads * sizeof(float)); // value_cache_s
     return n;
 }
 
@@ -203,8 +219,11 @@ void malloc_run_state(RunState* s, Config* p, Arena *a) {
     s->v           = (float*) arena_alloc(a, (size_t)kv_dim * sizeof(float));
     s->att         = (float*) arena_alloc(a, (size_t)p->n_heads * p->seq_len * sizeof(float));
     s->logits      = (float*) arena_alloc(a, (size_t)p->vocab_size * sizeof(float));
-    s->key_cache   = (float*) arena_alloc(a, (size_t)p->n_layers * p->seq_len * kv_dim * sizeof(float));
-    s->value_cache = (float*) arena_alloc(a, (size_t)p->n_layers * p->seq_len * kv_dim * sizeof(float));
+    // DOS-PORT: int8 KV cache (task #4). See RunState + runstate_arena_size above.
+    s->key_cache_q   = (int8_t*)arena_alloc(a, (size_t)p->n_layers * p->seq_len * kv_dim * sizeof(int8_t));
+    s->key_cache_s   = (float*) arena_alloc(a, (size_t)p->n_layers * p->seq_len * p->n_kv_heads * sizeof(float));
+    s->value_cache_q = (int8_t*)arena_alloc(a, (size_t)p->n_layers * p->seq_len * kv_dim * sizeof(int8_t));
+    s->value_cache_s = (float*) arena_alloc(a, (size_t)p->n_layers * p->seq_len * p->n_kv_heads * sizeof(float));
 }
 
 // DOS-PORT: no-op — buffers live in Transformer.run_arena, freed by
@@ -526,33 +545,71 @@ float* forward(Transformer* transformer, int token, int pos) {
             }
         }
 
-        // save key,value at this time step (pos) to our kv cache
-        int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
-        float* key_cache_row = s->key_cache + loff + pos * kv_dim;
-        float* value_cache_row = s->value_cache + loff + pos * kv_dim;
-        memcpy(key_cache_row, s->k, kv_dim * sizeof(*key_cache_row));
-        memcpy(value_cache_row, s->v, kv_dim * sizeof(*value_cache_row));
+        // DOS-PORT: save k, v at this timestep into the int8 KV cache (task #4).
+        // DOS-PORT: Per-head scale: one fp32 per (layer, pos, kv_head). The
+        // DOS-PORT: attention inner loops below already walk one head at a time,
+        // DOS-PORT: so the scale is a single multiply outside each dot product.
+        int loff   = l * p->seq_len * kv_dim;           // byte offset into *_cache_q
+        int loff_s = l * p->seq_len * p->n_kv_heads;    // scale offset into *_cache_s
+        {
+            int8_t *kq_row = s->key_cache_q   + loff   + pos * kv_dim;
+            int8_t *vq_row = s->value_cache_q + loff   + pos * kv_dim;
+            float  *ks_row = s->key_cache_s   + loff_s + pos * p->n_kv_heads;
+            float  *vs_row = s->value_cache_s + loff_s + pos * p->n_kv_heads;
+            for (int kh = 0; kh < p->n_kv_heads; kh++) {
+                int base = kh * head_size;
+                // scan this head's sub-vector for max |.| → scale
+                float kmax = 0.0f, vmax = 0.0f;
+                for (int i = 0; i < head_size; i++) {
+                    float ak = fabsf(s->k[base + i]);
+                    float av = fabsf(s->v[base + i]);
+                    if (ak > kmax) kmax = ak;
+                    if (av > vmax) vmax = av;
+                }
+                float ks = kmax / 127.0f;
+                float vs = vmax / 127.0f;
+                ks_row[kh] = ks;
+                vs_row[kh] = vs;
+                // quantize. Guard against a zero scale (all-zero sub-vector).
+                float kinv = (ks > 0.0f) ? (1.0f / ks) : 0.0f;
+                float vinv = (vs > 0.0f) ? (1.0f / vs) : 0.0f;
+                for (int i = 0; i < head_size; i++) {
+                    float kv_k = s->k[base + i] * kinv;
+                    float kv_v = s->v[base + i] * vinv;
+                    // clamp + round (matches upstream quantize() behavior)
+                    int qk = (int)(kv_k < 0.0f ? kv_k - 0.5f : kv_k + 0.5f);
+                    int qv = (int)(kv_v < 0.0f ? kv_v - 0.5f : kv_v + 0.5f);
+                    if (qk >  127) qk =  127;
+                    if (qk < -128) qk = -128;
+                    if (qv >  127) qv =  127;
+                    if (qv < -128) qv = -128;
+                    kq_row[base + i] = (int8_t)qk;
+                    vq_row[base + i] = (int8_t)qv;
+                }
+            }
+        }
 
         // multihead attention. iterate over all heads
         int h;
         #pragma omp parallel for private(h)
         for (h = 0; h < p->n_heads; h++) {
+            int kv_h = h / kv_mul;                    // which kv-head feeds this query head
             // get the query vector for this head
             float* q = s->q + h * head_size;
             // attention scores for this head
             float* att = s->att + h * p->seq_len;
             // iterate over all timesteps, including the current one
             for (int t = 0; t <= pos; t++) {
-                // get the key vector for this head and at this timestep
-                float* k = s->key_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
-                // calculate the attention score as the dot product of q and k
-                float score = 0.0f;
+                // DOS-PORT: dequant key for this head/timestep on the fly.
+                // DOS-PORT: int8 dot + single scale multiply outside the inner
+                // DOS-PORT: loop replaces a memcpy + fp32 dot in upstream.
+                const int8_t *kq = s->key_cache_q + loff + t * kv_dim + kv_h * head_size;
+                float ks = s->key_cache_s[loff_s + t * p->n_kv_heads + kv_h];
+                float dot = 0.0f;
                 for (int i = 0; i < head_size; i++) {
-                    score += q[i] * k[i];
+                    dot += q[i] * (float)kq[i];
                 }
-                score /= sqrtf(head_size);
-                // save the score to the attention buffer
-                att[t] = score;
+                att[t] = (dot * ks) / sqrtf(head_size);
             }
 
             // softmax the scores to get attention weights, from 0..pos inclusively
@@ -562,13 +619,14 @@ float* forward(Transformer* transformer, int token, int pos) {
             float* xb = s->xb + h * head_size;
             memset(xb, 0, head_size * sizeof(float));
             for (int t = 0; t <= pos; t++) {
-                // get the value vector for this head and at this timestep
-                float* v = s->value_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
-                // get the attention weight for this timestep
-                float a = att[t];
-                // accumulate the weighted value into xb
+                // DOS-PORT: dequant value for this head/timestep; fold the
+                // DOS-PORT: per-head scale into the attention weight so the
+                // DOS-PORT: inner loop is still a single fmadd chain.
+                const int8_t *vq = s->value_cache_q + loff + t * kv_dim + kv_h * head_size;
+                float vs = s->value_cache_s[loff_s + t * p->n_kv_heads + kv_h];
+                float a = att[t] * vs;
                 for (int i = 0; i < head_size; i++) {
-                    xb[i] += a * v[i];
+                    xb[i] += a * (float)vq[i];
                 }
             }
         }

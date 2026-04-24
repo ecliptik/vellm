@@ -340,6 +340,127 @@ to fixed-point would save a fraction of that fraction while adding
 quantization error to the only remaining fp precision in the pipeline.
 Not worth the correctness risk for a likely <5% win.
 
+## Task #4 — int8 KV cache
+
+**Goal:** cut the KV cache from fp32 → int8 to get `stories42M_q80`
+under the 46.55 MB DPMI physical ceiling on the 48 MB target. Task #1
+alone (`--max-seq-len 256`) left 42M demand at ~50 MB (still paging
+~4 MB through CWSDPMI.SWP); task #4 alone (int8 KV, seq=1024) left
+it at ~51 MB. **Together** they drop 42M to 44.69 MB — first time
+it runs without swap.
+
+### Quantization granularity: per-head scale
+
+Trade-off space:
+- **per-row** (one scale per kv_dim vector): 1 scale per (layer, pos).
+  Minimum storage, maximum quantization error (single scale must
+  accommodate every value across all heads).
+- **per-head** (one scale per head sub-vector): n_kv_heads scales per
+  (layer, pos). Heads have naturally-different dynamic ranges (each
+  attends to different patterns), so scale per head matches the data.
+  Indexing is also free — the attention inner loop already walks one
+  head at a time.
+- **per-GS-group of 64**: matches the weight Q8_0 convention. Would be
+  natural, but for 15M `kv_dim=288` isn't a multiple of 64, so we'd
+  need a special-case or a different group size.
+
+**Chosen: per-head.** Scale count per cache:
+- 15M: `6 layers × 256 pos × 6 kv_heads × 4 bytes = 36 KB` per of K/V
+  → 72 KB total scale overhead.
+- 42M: `8 × 1024 × 8 × 4 = 256 KB` per → 512 KB total scale overhead.
+
+Both are noise compared to the quantized-value savings.
+
+### Layout
+
+```
+int8_t * key_cache_q   // (n_layers, seq_len, kv_dim)           bytes
+float  * key_cache_s   // (n_layers, seq_len, n_kv_heads)       fp32
+int8_t * value_cache_q // same shape as key_cache_q
+float  * value_cache_s // same shape as key_cache_s
+```
+
+Arena math:
+- 15M KV: `3.38 MB fp32 → 0.84 MB int8 + 72 KB scales = 0.92 MB` (-73%).
+- 42M KV @ seq_len=1024: `32 MB → 8 MB + 512 KB = 8.5 MB` (-73%).
+- 42M KV @ --max-seq-len 256: `8 MB → 2 MB + 128 KB = 2.13 MB` (-73%).
+
+### Forward-path shape
+
+Store (once per token, inside the layer loop, after RoPE):
+- For each kv_head: find `max |v|` over the head's `head_size` slice,
+  compute `scale = max / 127`, write scale + quantized values into
+  the cache row.
+- Guard against all-zero sub-vectors (scale = 0 → store zeros).
+
+Load (twice per token — attention scores + value accumulation):
+- For each (head, timestep), read the per-head scale once, factor it
+  out of the inner loop. Inner loop is `dot += q[i] * (float)kq[i]`
+  for scores and `xb[i] += a' * (float)vq[i]` for values (with
+  `a' = att[t] × vs`). Same number of fp ops as the upstream fp32
+  path; only difference is the int8→float conversion on each load.
+
+### Validation
+
+Full `-n 200` canonical gate on `stories15M_q80`: **PASS (primary)** —
+first 192 bytes byte-identical to the golden. This was not expected
+— per-head quantization is lossy, so we budgeted for tolerance-gate
+territory. The 30-token correctness fingerprint is robust enough to
+absorb the sub-ULP drift this introduces.
+
+### Measurements
+
+Memory, `after-build_transformer` demand (VELLM_MEMORY_TRACE
+instrumentation, reverted after capture):
+
+| Model           | Config            | Pre-task-#4 | Post-task-#4 | Δ       |
+|-----------------|-------------------|------------:|-------------:|--------:|
+| stories15M_q80  | seq_len=256       |    19.88 MB |   **17.44 MB** | -2.44 MB |
+| stories42M_q80  | seq_len=1024      |    74.50 MB |     51.06 MB | -23.44 MB |
+| stories42M_q80  | --max-seq-len 256 |       n/a*  |   **44.69 MB** | —        |
+
+*42M at --max-seq-len 256 was a Phase 3 combination — no pre-task-#4
+datapoint exists. For comparison, fp32 KV at seq_len=256 would be
+~50.5 MB (still above the 46.55 MB ceiling), so task #4 is what
+actually makes 42M fit.
+
+**Headline:** 42M + --max-seq-len 256 + int8 KV = 44.69 MB, under the
+46.55 MB physical ceiling by 1.86 MB. First configuration where 42M
+runs on the 48 MB target with no CWSDPMI.SWP growth.
+
+Wall time, canonical `stories15M_q80 -n 200`:
+
+| Build                              | Wall    | Δ vs Pre-task-#4 |
+|------------------------------------|--------:|-----------------:|
+| Phase 3 task #3 only (A + B)       |  2m40.5s |            —     |
+| Phase 3 task #3 + task #4 int8 KV  | **2m59s** |          +18.5s  |
+
+The 18.5s regression is the expected trade-off — int8 KV adds per-head
+quantize-on-store and int8→float-convert-on-load work. At `-n 20` the
+overhead is invisible (23.5s both with and without int8 KV) because
+attention is O(pos²) and pos is small. At `-n 200` the attention loops
+become the dominant hot path, and the conversion cost shows up.
+
+Aggregate Phase 3 wall time on `stories15M_q80 -n 200`:
+- Phase 2 baseline:                  **5m45s**
+- Phase 3 task #3 only:              2m40.5s  (-53.5% / 2.15x)
+- Phase 3 task #3 + task #4:         **2m59s** (-48.4% / 1.93x)
+
+Still well past the "measurable speedup" exit criterion. Task #4
+trades ~10% of the task-#3 speed win for the memory headroom that
+makes 42M usable without swap — the correct trade-off for a
+memory-constrained target.
+
+### Decision
+
+Kept. Commit: phase3-task4-int8-kv-cache.
+
+**Possible follow-up** (not pursued here, budgeted for post-v0.1): the
+attention inner loops do `int8 → float` conversion inside the
+fmadd chain. A fully-int MAC (quantize `q` and `att` too, do
+int32-accumulated dot products) would eliminate most of the overhead
+and possibly even invert the regression into a net win. Non-trivial
+integer-quantization design; deferred.
 
 ## Integration measurements
 
@@ -349,15 +470,16 @@ To be filled in during task #5 after tuner's #3/#4 land.
 
 | Build                              | Gate    | Peak demand | CWSDPMI.SWP | Wall time (n=200) |
 |------------------------------------|---------|------------:|------------:|------------------:|
-| Post-Phase-2 (b5d72d0)             | primary | 19.89 MB    | 0           | ~5m45s            |
-| Phase 3 + Experiment A (flags)     | primary | 19.89 MB    | 0           | 2m43s             |
-| Phase 3 + Exp A + B (IDIV→shift)   | primary | 19.89 MB    | 0           | **2m40.5s**       |
-| Phase 3 + A + B + #4 int8 KV       | TBD     | TBD         | TBD         | TBD               |
+| Post-Phase-2 (b5d72d0)             | primary | 19.88 MB    | 0           | 5m45s             |
+| Phase 3 + Experiment A (flags)     | primary | 19.88 MB    | 0           | 2m43s             |
+| Phase 3 + Exp A + B (IDIV→shift)   | primary | 19.88 MB    | 0           | 2m40.5s           |
+| Phase 3 + A + B + #4 int8 KV       | primary | **17.44 MB**| 0           | **2m59s**         |
 
 ### stories42M_q80 at memsize=48
 
-| Build                            | Gate   | Peak demand | CWSDPMI.SWP |
-|----------------------------------|--------|------------:|------------:|
-| Post-Phase-2 (b5d72d0)           | n/a    | 74.50 MB    | ~30 MB      |
-| Phase 3 + `--max-seq-len 256`    | TBD    | TBD         | TBD         |
-| Phase 3 + `--max-seq-len 256` + tuner #4 int8 KV | TBD | TBD | TBD |
+| Build                                                | Peak demand | CWSDPMI.SWP |
+|------------------------------------------------------|------------:|------------:|
+| Post-Phase-2 (b5d72d0)                               |    74.50 MB |       ~30 MB |
+| Phase 3 + `--max-seq-len 256` only                   |    ~50.5 MB |       ~4 MB |
+| Phase 3 + int8 KV only (seq_len=1024)                |    51.06 MB |     ~4.5 MB |
+| Phase 3 + `--max-seq-len 256` + int8 KV (task #4)    | **44.69 MB**|       **0** |
