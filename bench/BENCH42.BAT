@@ -1,24 +1,27 @@
 @ECHO OFF
 REM ============================================================
-REM  BENCH42.BAT  --  vellm benchmark (stories42M_q80 @ seq=200)
+REM  BENCH42.BAT  --  vellm benchmark (stories42M_q80 @ seq=128)
 REM ============================================================
-REM  42M model with --MAX-SEQ-LEN 200. This is the tightest legal
-REM  KV cache cap for the canonical benchmark: --benchmark mode
-REM  hardcodes -n 200 tokens, so -L must be at least 200 (the
-REM  earlier -L 128 failed with "-n 200 exceeds --max-seq-len").
+REM  42M model with --MAX-SEQ-LEN 128. This cap serves two purposes:
+REM    1. Shrinks the KV cache by ~1.1 MB vs seq=256, dropping peak
+REM       memory to ~43.6 MB — clear of real DOS's ~43-45 MB ceiling
+REM       so CWSDPMI doesn't page.
+REM    2. --benchmark respects --max-seq-len and clamps the canonical
+REM       200-token generation down to 128 when the cap is below 200.
+REM       The output block's `tokens:` field reports the actual count.
 REM
-REM  Projected peak ~44.2 MB — slightly below seq=256's 44.7 MB.
-REM  On real DOS 6.22 with CWSDPMI this sits right against the
-REM  physical ceiling (~43-45 MB usable depending on config),
-REM  so expect either clean runs or light paging. If CWSDPMI.SWP
-REM  grows substantially during the run, 42M simply doesn't fit
-REM  in 48 MB without swap and that's the documented outcome.
+REM  Tok/s results remain directly comparable to the 15M benchmark
+REM  (it's a rate, not a total); only the total wall time differs.
+REM
+REM  If seq=128 still pages on your specific DOS config, drop to
+REM  --max-seq-len 96 or 64.  42M's physical floor on 48 MB real DOS
+REM  is machine-dependent (drivers, TSRs, HIMEM config).
 REM
 REM  CWSDPMI.EXE must be in the same directory as VELLM.EXE.
 REM ============================================================
 SET DPMI=CWSDPMI.EXE
 ECHO.
-ECHO Running vellm benchmark (stories42M_q80, seq=200, 200 tokens)...
-ECHO This takes ~30 minutes on a Pentium/83 (no-swap estimate).
+ECHO Running vellm benchmark (stories42M_q80, seq=128, 128 tokens)...
+ECHO This takes ~18 minutes on a Pentium/83 (no-swap estimate).
 ECHO.
-VELLM.EXE STORY42.BIN -z TOKEN.BIN --benchmark --max-seq-len 200
+VELLM.EXE STORY42.BIN -z TOKEN.BIN --benchmark --max-seq-len 128

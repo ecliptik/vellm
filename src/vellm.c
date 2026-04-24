@@ -1328,8 +1328,40 @@ static void bench_cpu_brand(char *out, size_t outsz) {
         family   = (a >> 8) & 0xfu;
         model    = (a >> 4) & 0xfu;
         stepping = a & 0xfu;
-        snprintf(out, outsz, "%s family %u model %u stepping %u",
-                 vendor, family, model, stepping);
+
+        /* DOS-PORT: map GenuineIntel family+model to a friendly name for
+         * era-relevant CPUs (486 + all P5 variants, including the Pentium
+         * OverDrive at family 5 model 3 — the primary vellm target).
+         * Unknown combinations fall through to the raw format. */
+        const char *friendly = NULL;
+        if (memcmp(vendor, "GenuineIntel", 12) == 0) {
+            if (family == 4) {
+                switch (model) {
+                    case 0: case 1: friendly = "Intel 80486 DX"; break;
+                    case 2: friendly = "Intel 80486 SX"; break;
+                    case 3: friendly = "Intel 80486 DX2"; break;
+                    case 4: friendly = "Intel 80486 SL"; break;
+                    case 5: friendly = "Intel 80486 SX2"; break;
+                    case 7: friendly = "Intel 80486 DX2 (write-back)"; break;
+                    case 8: friendly = "Intel 80486 DX4"; break;
+                    case 9: friendly = "Intel 80486 DX4 (write-back)"; break;
+                }
+            } else if (family == 5) {
+                switch (model) {
+                    case 0: friendly = "Intel Pentium (P5)"; break;
+                    case 1: case 2: case 7: friendly = "Intel Pentium (P54C)"; break;
+                    case 3: friendly = "Intel Pentium OverDrive"; break;
+                    case 4: friendly = "Intel Pentium MMX (P55C)"; break;
+                    case 8: friendly = "Intel Pentium MMX (Tillamook)"; break;
+                }
+            }
+        }
+        if (friendly) {
+            snprintf(out, outsz, "%s", friendly);
+        } else {
+            snprintf(out, outsz, "%s family %u model %u stepping %u",
+                     vendor, family, model, stepping);
+        }
     }
 }
 
@@ -1574,15 +1606,16 @@ static void bench_cpu_features(char *out, size_t outsz) {
     int cmov = (d >> 15) & 1;
     int mmx  = (d >> 23) & 1;
     int sse  = (d >> 25) & 1;
-    snprintf(out, outsz, "%s%s%s%s%s%s%s",
+    /* Show only present flags. Omit ever-present ones implied by
+     * the era (e.g. FPU on every Pentium-class chip — still show it,
+     * as it's a legit CPUID bit; just don't call out absences). */
+    snprintf(out, outsz, "%s%s%s%s%s",
              fpu  ? "FPU "  : "",
              tsc  ? "TSC "  : "",
              cmov ? "CMOV " : "",
              mmx  ? "MMX "  : "",
-             sse  ? "SSE "  : "",
-             (!mmx && !sse) ? "(no MMX/SSE)" : "",
-             (!fpu) ? "(no FPU!)" : "");
-    /* Trim trailing space if no parenthetical suffix was added. */
+             sse  ? "SSE "  : "");
+    /* Trim trailing space. */
     size_t n = strlen(out);
     while (n > 0 && out[n-1] == ' ') out[--n] = 0;
 #else
@@ -1694,7 +1727,9 @@ void error_usage() {
     fprintf(stderr, "              (-t 0 -s 42 -n 200 -i \"The old computer hummed to life\"),\n");
     fprintf(stderr, "              prints a machine-readable report between\n");
     fprintf(stderr, "              --- VELLM BENCHMARK --- and --- END --- markers.\n");
-    fprintf(stderr, "              --max-seq-len / -L is honored (useful for 42M).\n");
+    fprintf(stderr, "              --max-seq-len / -L is honored and clamps the\n");
+    fprintf(stderr, "              canonical 200 tokens down to L when L<200\n");
+    fprintf(stderr, "              (useful for 42M on memory-constrained hosts).\n");
     exit(EXIT_FAILURE);
 }
 
@@ -1785,6 +1820,14 @@ int main(int argc, char *argv[]) {
          * — bench/run.sh's reference numbers are pinned to this exact string. */
         prompt      = "The old computer hummed to life";
         mode        = "generate";
+        /* DOS-PORT: if the operator capped --max-seq-len below 200, clamp the
+         * canonical 200-token target to fit the KV cache. Preserves benchmark
+         * utility for memory-constrained configurations (e.g. stories42M_q80
+         * on 48 MB real DOS, where even -L 200 still pages). The benchmark
+         * output's `tokens` field reports the actual count, so parsers see
+         * what happened; tok/s figures remain directly comparable across
+         * scenarios because they're rates, not totals. */
+        if (max_seq_len > 0 && max_seq_len < steps) steps = max_seq_len;
     }
 
     // DOS-PORT: validate --max-seq-len against -n before build_transformer so
