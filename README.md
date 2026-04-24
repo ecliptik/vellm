@@ -7,7 +7,7 @@ vellm is a port of karpathy's [llama2.c](https://github.com/karpathy/llama2.c) (
 This project was 100% built agentically using [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
 <p align="center">
-<a href="#requirements">Requirements</a> · <a href="#features">Features</a> · <a href="#usage">Usage</a> · <a href="#benchmarks">Benchmarks</a> · <a href="#building">Building</a> · <a href="#deployment">Deployment</a> · <a href="#testing">Testing</a> · <a href="#acknowledgments">Acknowledgments</a> · <a href="#license">License</a>
+<a href="#minimum-requirements">Minimum Requirements</a> · <a href="#features">Features</a> · <a href="#usage">Usage</a> · <a href="#benchmarks">Benchmarks</a> · <a href="#deployment">Deployment</a> · <a href="#building">Building</a> · <a href="#testing">Testing</a> · <a href="#acknowledgments">Acknowledgments</a> · <a href="#license">License</a>
 </p>
 
 <p align="center">
@@ -18,19 +18,13 @@ This project was 100% built agentically using [Claude Code](https://docs.anthrop
 
 ---
 
-## Requirements
+## Minimum Requirements
 
-**Target hardware**
 - Intel Pentium-class CPU (P5, P54C, or OverDrive)
 - 48 MB RAM for `stories42M_q80`; 24 MB is enough for `stories15M_q80`
 - MS-DOS 6.22 or compatible (HIMEM.SYS required; EMM386 not recommended)
 - IDE / CF storage with ~50 MB free
 - CWSDPMI r7 (shipped in the CF package)
-
-**Build host**
-- Linux (Debian 13 tested; any modern distro should work)
-- `apt install dosbox-x build-essential bison flex texinfo libgmp-dev libmpfr-dev libmpc-dev wget curl unzip zlib1g-dev patch`
-- See [BUILDING.md](./BUILDING.md) for the full walk-through
 
 ## Features
 
@@ -143,33 +137,9 @@ peak mem   : 19791872
 
 The banner printed to stderr at every startup shows the actual hardware — friendly CPU name, measured MHz, RAM breakdown, DOS + BIOS versions. Visible in the screenshot above.
 
-## Building
-
-Requires the DJGPP cross-compiler. One-time install (~30–60 min):
-
-```bash
-./tools/build-djgpp.sh
-```
-
-This wraps Andrew Wu's [build-djgpp](https://github.com/andrewwutw/build-djgpp) to install DJGPP 12.2.0 into `$HOME/emulators/tools/djgpp/`. Override with `DJGPP_PREFIX=/path/to/djgpp`.
-
-Then build vellm:
-
-```bash
-make                        # cross-builds vellm.exe
-make -f Makefile.host       # native Linux reference build (run_host)
-tests/run-golden.sh         # correctness gate: first 192 bytes vs. golden
-```
-
-See [BUILDING.md](./BUILDING.md) for prerequisites, the full dependency list, and a common-errors section.
-
 ## Deployment
 
-```bash
-make cf-package             # produces dist/vellm-cf.{zip,tar.gz}
-```
-
-Contents: `VELLM.EXE`, `CWSDPMI.EXE` + license, tokenizer + model(s), batch-file runners (`RUN.BAT`, `BENCH.BAT`, `BENCH42.BAT`), DOS-formatted `README.TXT`. If `models/stories42M_q80.bin` is present at build time, the 42M model and its benchmark are included.
+The `make cf-package` target (see [BUILDING.md](./BUILDING.md)) produces `dist/vellm-cf.tar.gz` and `.zip`, both containing `VELLM.EXE`, `CWSDPMI.EXE` + license, tokenizer + model(s), batch-file runners (`RUN.BAT`, `BENCH.BAT`, `BENCH42.BAT`), and a DOS-formatted `README.TXT`. If `models/stories42M_q80.bin` is present at build time, the 42M model and its benchmark are included.
 
 Mount a FAT-formatted CF card and extract:
 
@@ -178,6 +148,10 @@ tar xzf dist/vellm-cf.tar.gz -C /mnt/cf
 ```
 
 Then boot your DOS machine and run `RUN.BAT` or one of the benchmark scripts.
+
+## Building
+
+See [BUILDING.md](./BUILDING.md) for prerequisites, the DJGPP cross-compiler install, build commands, and a common-errors section.
 
 ## Testing
 
