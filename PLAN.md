@@ -11,7 +11,7 @@ This document is the phased implementation roadmap. See `CLAUDE.md` for the day-
 - **Storage:** CF-to-IDE adapter (2 GB / 4 GB cards). No NVMe driver work.
 - **Repo name:** `vellm` (pronounced vellum).
 - **Upstream baseline:** `runq.c`, **not** `run.c` (see section below).
-- **First-light model:** `stories15M_q80.bin` (~15 MB, upstream Q8_0 format) for the correctness gate. Larger domain-tuned checkpoints land in Phase 6.
+- **First-light model:** `stories15M_q80.bin` (~15 megs, upstream Q8_0 format) for the correctness gate. Larger domain-tuned checkpoints land in Phase 6.
 - **Correctness floating point:** no `-ffast-math` in Phase 1 — Phase 1 exit criteria is byte-identical stdout vs. upstream Linux `runq.c` on the same seed/prompt. `-ffast-math` re-enables in Phase 3 with tolerance-based diffing.
 - **Build delivery:** user mounts CF card on Linux, runs `make install CF=/mnt/…`.
 - **Toolchain location:** DJGPP cross-compiler at `~/emulators/tools/djgpp/`, matching the existing `retro68-build` convention in the Macintosh retro pipeline.
@@ -32,7 +32,7 @@ vellm ports Karpathy's `llama2.c/runq.c` — the int8-quantized inference varian
 ### Phase 0 — Toolchain + scaffolding
 
 1. Cross-DJGPP via `andrewwutw/build-djgpp` installed to `~/emulators/tools/djgpp/`. Smoke-test with `hello.c`.
-2. DOSBox-X (apt). Config at `tools/dosbox-x.conf`: Pentium CPU, 48 MB, cycles tuned for Pentium/83.
+2. DOSBox-X (apt). Config at `tools/dosbox-x.conf`: Pentium CPU, 48 megs, cycles tuned for Pentium/83.
 3. CWSDPMI vendored at `vendor/cwsdpmi/cwsdpmi.exe`, license alongside.
 4. Repo skeleton per layout below.
 5. Git remote verified.
@@ -43,7 +43,7 @@ vellm ports Karpathy's `llama2.c/runq.c` — the int8-quantized inference varian
 
 Goal: get `runq.c` cross-compiling under DJGPP and producing byte-identical output to upstream on the Pentium.
 
-**Prereq (download before starting):** place upstream's `stories15M_q80.bin` (~15 MB) and `tokenizer.bin` (32K vocab) in `models/`. Source: the release assets on the `karpathy/llama2.c` repo.
+**Prereq (download before starting):** place upstream's `stories15M_q80.bin` (~15 megs) and `tokenizer.bin` (32K vocab) in `models/`. Source: the release assets on the `karpathy/llama2.c` repo.
 
 1. Fork `vendor/llama2.c/runq.c` to `src/vellm.c`. Keep `vendor/llama2.c/runq.c` pristine as the correctness reference.
 2. Minimum DOS diff — the only code changes vs. upstream are:
@@ -61,11 +61,11 @@ Goal: get `runq.c` cross-compiling under DJGPP and producing byte-identical outp
 
 ### Phase 2 — Memory hardening and DOS-specific robustness
 
-Goal: make it robust on 48 MB of real DOS, not just technically-working. Original Phase 2 (quantizer + custom format) is **eliminated** — upstream `runq.c`'s Q8_0 format is already our format.
+Goal: make it robust on 48 megs of real DOS, not just technically-working. Original Phase 2 (quantizer + custom format) is **eliminated** — upstream `runq.c`'s Q8_0 format is already our format.
 
 1. Allocation audit. Confirm `stories15M_q80.bin` fits resident alongside tokenizer, KV cache, and stdio buffers. Document peak resident memory (via `_go32_dpmi_get_free_memory_information` or equivalent).
 2. Pre-allocate one arena at startup for all model tensors and KV cache. No per-token allocations in the hot path, no DJGPP-allocator fragmentation across generations.
-3. **On-the-fly token-embedding dequant.** Upstream `runq.c`'s `memory_map_weights()` dequantizes the full `vocab_size × dim` token-embedding table to fp32 at load (35 MB for 15M on a 32K vocab — more than 2× the 17 MB checkpoint, and the single largest resident allocation). For a 48 MB target this is untenable. Change: keep the embedding in Q8_0 form, dequantize one row on demand at each embedding lookup. Speed cost on an 83 MHz Pentium is negligible (~130 µs/token) vs. matmul time; memory goes from 35 MB to ~1 KB transient. This is a memory-vs-speed tradeoff upstream resolved in favor of speed; for vellm's constraints, memory wins.
+3. **On-the-fly token-embedding dequant.** Upstream `runq.c`'s `memory_map_weights()` dequantizes the full `vocab_size × dim` token-embedding table to fp32 at load (35 megs for 15M on a 32K vocab — more than 2× the 17 megs checkpoint, and the single largest resident allocation). For a 48 megs target this is untenable. Change: keep the embedding in Q8_0 form, dequantize one row on demand at each embedding lookup. Speed cost on an 83 MHz Pentium is negligible (~130 µs/token) vs. matmul time; memory goes from 35 megs to ~1 KB transient. This is a memory-vs-speed tradeoff upstream resolved in favor of speed; for vellm's constraints, memory wins.
 4. Determinism check: run the Phase 1 command three times with the same seed, verify byte-identical output across runs (catches uninitialized-memory bugs that DJGPP's allocator can otherwise mask).
 5. Push the upper bound: try `stories42M_q80.bin` — if it fits (now plausible with on-the-fly dequant), document it as an additional target; if it doesn't, document the RAM boundary in `docs/hardware.md`.
 6. The Phase 0 `src/quant.{c,h}` stubs can be deleted — we never need our own quant code.
@@ -82,7 +82,7 @@ Goal: make it robust on 48 MB of real DOS, not just technically-working. Origina
 
 Train a ~30M-parameter model from scratch on a narrow domain corpus (starting with DOS / vintage computing knowledge) so `vellm.exe` answers period-appropriate questions, not just generates children's stories. Ship as v0.2.
 
-1. **Data collection** — Ralf Brown's Interrupt List, USENET `comp.os.msdos.*` archives, FreeDOS docs, textfiles.com, period books in text form. Cleanup + dedupe. Target 200–800 MB cleaned text.
+1. **Data collection** — Ralf Brown's Interrupt List, USENET `comp.os.msdos.*` archives, FreeDOS docs, textfiles.com, period books in text form. Cleanup + dedupe. Target 200–800 megs cleaned text.
 2. **Format as Q&A pairs** — structure training data with `<|user|>` / `<|assistant|>` delimiters. USENET threads map naturally; synthesize pairs from reference material programmatically.
 3. **Train a custom BPE tokenizer** — SentencePiece, vocab 2048–4096, domain tokens (`HIMEM.SYS`, `INT 21H`, etc.) become single tokens.
 4. **Train the model** — `vendor/llama2.c/train.py`. Pilot run on the host i7-8700K (few hundred K tokens) to validate pipeline, then full training run on a rented GPU (RTX 4090 or A100 — a few hours, $5–20 per attempt on Vast.ai/RunPod).
@@ -136,7 +136,7 @@ vellm/
 ## Critical build notes
 
 - Always `fopen(path, "rb")` — DJGPP default is text mode, will mangle checkpoints.
-- No `mmap`. Just `malloc` + `fread`. 48 MB on-device is plenty.
+- No `mmap`. Just `malloc` + `fread`. 48 megs on-device is plenty.
 - Audit every `ftell`/`ssize_t` from upstream — DJGPP is 32-bit; upstream assumes 64-bit on modern hosts.
 - `setvbuf(stdout, NULL, _IOFBF, 4096)` at top of main — unbuffered stdout is slow on DOS.
 - Default stack under DPMI is 256 KB. Post-link: `stubedit minstack=2048k`.

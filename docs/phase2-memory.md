@@ -48,7 +48,7 @@ Companion to `docs/phase1-notes.md`. Two parts:
 Swap comparison at `memsize=64` uses a throwaway copy of
 `tools/dosbox-x.conf` with `memsize = 64`; invoke via
 `CONF=/tmp/vellm-dosbox-64.conf tools/dosbox-run.sh ...`. Do **not**
-commit a memsize=64 variant — the target hardware is 48 MB.
+commit a memsize=64 variant — the target hardware is 48 megs.
 
 ## Field semantics (DJGPP `<dpmi.h>`)
 
@@ -71,20 +71,20 @@ The useful headline numbers are:
   tok/s, because real hardware doesn't page (no swap file on bare DOS by
   default).
 
-CWSDPMI deliberately over-reports the virtual arena (172 MB at
-`memsize=48`, 188 MB at `memsize=64`) by extending with a swap file on
-demand up to ~128 MB over physical. That's why `available_memory`
+CWSDPMI deliberately over-reports the virtual arena (172 megs at
+`memsize=48`, 188 megs at `memsize=64`) by extending with a swap file on
+demand up to ~128 megs over physical. That's why `available_memory`
 alone is misleading for "does this fit."
 
 ## Measurements — stories15M_q80 under `-n 20`
 
 `stories15M_q80.bin` resolves to `Config{ dim=288, hidden_dim=768,
 n_layers=6, n_heads=6, n_kv_heads=6, vocab_size=32000, seq_len=256,
-GS=32 }`. Checkpoint file is 16.31 MB on disk.
+GS=32 }`. Checkpoint file is 16.31 megs on disk.
 
 ### memsize = 48 (target PODP5V83 config)
 
-| Checkpoint                  | `available_memory` (MB) | `unlocked_pages × 4K` (MB) |
+| Checkpoint                  | `available_memory` (megs) | `unlocked_pages × 4K` (megs) |
 |-----------------------------|------------------------:|---------------------------:|
 | `main-entry`                |                  172.30 |                      46.55 |
 | `before-checkpoint-malloc`  |                  172.30 |                      46.55 |
@@ -95,9 +95,9 @@ GS=32 }`. Checkpoint file is 16.31 MB on disk.
 | `after-generate`            |                  115.80 |                      46.55 |
 | `after-cleanup`             |                  115.80 |                      46.55 |
 
-Net virtual demand across `main-entry → after-generate`: **56.50 MB**.
-Physical ceiling: 46.55 MB. So ~9–10 MB of committed pages *must* live
-in CWSDPMI's swap file on the 48 MB config.
+Net virtual demand across `main-entry → after-generate`: **56.50 megs**.
+Physical ceiling: 46.55 megs. So ~9–10 megs of committed pages *must* live
+in CWSDPMI's swap file on the 48 megs config.
 
 `after-cleanup` does not recover the arena because the committed runtime
 heap is not returned to the DPMI host on `free()` — `malloc()` holds it.
@@ -107,16 +107,16 @@ process-exit in between (a concern if Phase 6 serves from a TSR).
 
 ### memsize = 64 (headroom reference)
 
-| Checkpoint                  | `available_memory` (MB) | `unlocked_pages × 4K` (MB) |
+| Checkpoint                  | `available_memory` (megs) | `unlocked_pages × 4K` (megs) |
 |-----------------------------|------------------------:|---------------------------:|
 | `main-entry`                |                  188.30 |                      62.55 |
 | `after-build_transformer`   |                  133.17 |                      62.55 |
 | `after-generate`            |                  131.80 |                      62.55 |
 
-Net virtual demand: **56.50 MB** (same — the code doesn't change). With
-a 62.55 MB physical ceiling, demand fits entirely in RAM; **no swap**.
+Net virtual demand: **56.50 megs** (same — the code doesn't change). With
+a 62.55 megs physical ceiling, demand fits entirely in RAM; **no swap**.
 
-The 1.45 MB gap between `memsize` and `unlocked_pages×4K` (48 → 46.55,
+The 1.45 megs gap between `memsize` and `unlocked_pages×4K` (48 → 46.55,
 64 → 62.55) is the DOS conventional region + the CWSDPMI stub, held
 back before DPMI arena setup. It's a fixed tax, not something the port
 can reclaim.
@@ -124,25 +124,25 @@ can reclaim.
 ## Per-allocation breakdown (from `malloc_run_state` + `read_checkpoint`)
 
 ```
-checkpoint-plan        file        16.31 MB  (malloc+fread slurp)
-token-embed-plan       fp32 copy   35.16 MB  (32000 × 288 × 4)
-runstate-plan          total        3.52 MB
-  └─ kv cache                       3.38 MB  (2 × 6 × 256 × 288 × 4)
+checkpoint-plan        file        16.31 megs  (malloc+fread slurp)
+token-embed-plan       fp32 copy   35.16 megs  (32000 × 288 × 4)
+runstate-plan          total        3.52 megs
+  └─ kv cache                       3.38 megs  (2 × 6 × 256 × 288 × 4)
   └─ logits                       125.00 KB  (32000 × 4)
   └─ activations                   12.75 KB
   └─ attention scores               6.00 KB  (6 × 256 × 4)
   └─ quantize buffers               5.16 KB
 ─────────────────────────────────────────────
-demand total                       55.00 MB
-observed virtual drop              56.50 MB   (delta: 1.5 MB allocator
+demand total                       55.00 megs
+observed virtual drop              56.50 megs   (delta: 1.5 megs allocator
                                                 fragmentation + extra
                                                 QuantizedTensor[]
                                                 arrays in memory_map_weights)
 ```
 
-### Headline: the dequantized token-embedding table is 35 MB
+### Headline: the dequantized token-embedding table is 35 megs
 
-This is by far the single largest allocation, more than double the 17 MB
+This is by far the single largest allocation, more than double the 17 megs
 model file itself. `memory_map_weights()` dequantizes the entire
 `q_tokens` Q8_0 block into fp32 at load time, then never re-reads the
 int8 copy for embedding lookup (though it stays resident because it's
@@ -151,7 +151,7 @@ slicing the one big checkpoint buffer).
 **Phase 3 will look at dequantizing rows on the fly** (cost: one
 `q → fp32` conversion of `dim=288` floats per generated token = ~1152
 bytes per token, trivial compared to the matmul cost). That single
-change would drop peak demand from 55 MB to ~20 MB on `stories15M_q80`
+change would drop peak demand from 55 megs to ~20 megs on `stories15M_q80`
 and is the most impactful lever we have before touching matmul.
 
 This is **not** in scope for Phase 2 (arena refactor doesn't touch
@@ -165,11 +165,11 @@ started `-n 200` in background with `--keep-stage`, polled
 `stat -c %s CWSDPMI.SWP` every 5 s.
 
 ```
-t+0s   SWP=10,436,608 bytes  (~9.95 MB)  STDOUT=0 bytes
+t+0s   SWP=10,436,608 bytes  (~9.95 megs)  STDOUT=0 bytes
 ```
 
-`CWSDPMI.SWP` hits its steady size (≈10 MB) *during* the malloc+fread
-phase, before the first token is emitted. This matches the ~10 MB
+`CWSDPMI.SWP` hits its steady size (≈10 megs) *during* the malloc+fread
+phase, before the first token is emitted. This matches the ~10 megs
 number recorded in `docs/phase1-notes.md` §"CWSDPMI paging under
 DOSBox-X" almost exactly. It does not grow further during the 200-token
 generation loop — the working set stays stable once the weights are
@@ -183,8 +183,8 @@ have to sample mid-run.
 
 - **Task #3 (arena refactor)** should replace the 14 separate
   `calloc()`s in `malloc_run_state` with a single pre-allocated arena.
-  Expected win: **not** a large peak-memory reduction (the 3.52 MB of
-  RunState is dwarfed by the 35 MB dequant table). The win is
+  Expected win: **not** a large peak-memory reduction (the 3.52 megs of
+  RunState is dwarfed by the 35 megs dequant table). The win is
   allocator-fragmentation avoidance across repeated generations and
   determinism (calloc is already zero-fill, but a contiguous arena
   removes a whole class of "is this field properly zeroed after a
@@ -199,12 +199,12 @@ have to sample mid-run.
   and the short run is ~3 min vs. ~5 min per `-n 200` sweep.
 
 - **Task #5 (stories42M upper bound)** — extrapolating:
-  `stories42M_q80` should be ~42 MB on disk, with a dequantized token
+  `stories42M_q80` should be ~42 megs on disk, with a dequantized token
   embedding table scaling as `vocab_size × dim × 4`. If the 42M config
   keeps vocab_size=32000 and bumps dim (likely `dim=512`, `n_layers=8`),
-  the dequant table alone becomes ~62 MB — **larger than the physical
+  the dequant table alone becomes ~62 megs — **larger than the physical
   ceiling at `memsize=48`**. Strong prediction: without the Phase 3
-  on-the-fly dequant, 42M will not fit on the 48 MB target. Task #5
+  on-the-fly dequant, 42M will not fit on the 48 megs target. Task #5
   should confirm or refute by loading it and capturing the
   `after-build_transformer` demand number.
 
@@ -232,76 +232,76 @@ reverted before commit.
 Direct measurement, post-instrumentation-reapply, `-n 5 -s 42`:
 
 ```
-[MEM main-entry]              largest=172.30 MB  unlocked=46.55 MB
-[MEM after-build_transformer] largest=152.42 MB  unlocked=46.55 MB
+[MEM main-entry]              largest=172.30 megs  unlocked=46.55 megs
+[MEM after-build_transformer] largest=152.42 megs  unlocked=46.55 megs
 ```
 
-Net virtual demand: **19.88 MB** (vs. 55.13 MB pre-Phase-2,
-matches arena team's 19.89 MB headline from task-#7 commit). The
-−35.2 MB delta matches the fp32 embedding-table size
-(`32000 × 288 × 4 = 35.16 MB`) almost exactly — that is the one
+Net virtual demand: **19.88 megs** (vs. 55.13 megs pre-Phase-2,
+matches arena team's 19.89 megs headline from task-#7 commit). The
+−35.2 megs delta matches the fp32 embedding-table size
+(`32000 × 288 × 4 = 35.16 megs`) almost exactly — that is the one
 allocation task #7 eliminated.
 
-Demand is now ~26 MB *under* the 46.55 MB physical ceiling. CWSDPMI.SWP
+Demand is now ~26 megs *under* the 46.55 megs physical ceiling. CWSDPMI.SWP
 stays at 0 bytes throughout the run (confirmed mid-run sampling — see
 §"CWSDPMI.SWP observation — post-Phase-2" below).
 
 ### stories42M_q80 upper bound (task #5)
 
 42M config resolves to `dim=512 hidden=1376 layers=8 heads=8 kv_heads=8
-vocab=32000 seq_len=1024 GS=64`. Checkpoint is 42.27 MB.
+vocab=32000 seq_len=1024 GS=64`. Checkpoint is 42.27 megs.
 
-| Checkpoint                  | `available_memory` (MB) | `unlocked_pages × 4K` (MB) |
+| Checkpoint                  | `available_memory` (megs) | `unlocked_pages × 4K` (megs) |
 |-----------------------------|------------------------:|---------------------------:|
 | `main-entry`                |                  172.30 |                      46.55 |
 | `after-build_transformer`   |                   97.80 |                      46.55 |
 | `before-generate`           |                   96.55 |                      46.55 |
 | `after-generate`            |                   96.30 |                      46.55 |
 
-Net virtual demand: **74.50 MB**. Physical ceiling: 46.55 MB. So ~28 MB
+Net virtual demand: **74.50 megs**. Physical ceiling: 46.55 megs. So ~28 megs
 must page through CWSDPMI.SWP. Mid-run sample confirmed it:
 
 ```
-t=19:34:07  CWSDPMI.SWP = 30,834,688 bytes  (~29.4 MB)
+t=19:34:07  CWSDPMI.SWP = 30,834,688 bytes  (~29.4 megs)
 ```
 
 42M **fits with paging** on memsize=48. On period hardware without
 swap-friendly storage (slow CF, no swap file configured) this will be
-painful; on 64 MB hardware it runs without paging.
+painful; on 64 megs hardware it runs without paging.
 
 ### Per-allocation breakdown — 42M (derived from Config, post-Phase-2)
 
 ```
-checkpoint-plan        file        42.27 MB  (malloc+fread slurp)
-token-embed-plan       fp32 copy    0.00 MB  (eliminated by task #7)
-runstate-plan          total       32.20 MB
-  └─ kv cache                      32.00 MB  (2 × 8 × 1024 × 512 × 4)
+checkpoint-plan        file        42.27 megs  (malloc+fread slurp)
+token-embed-plan       fp32 copy    0.00 megs  (eliminated by task #7)
+runstate-plan          total       32.20 megs
+  └─ kv cache                      32.00 megs  (2 × 8 × 1024 × 512 × 4)
   └─ logits                       125.00 KB  (32000 × 4)
   └─ attention scores              32.00 KB  (8 × 1024 × 4)
   └─ activations                   24.00 KB  (dim=512, hidden=1376)
   └─ quantize buffers              11.25 KB
 ─────────────────────────────────────────────
-demand total                       74.47 MB
-observed virtual drop              74.50 MB
+demand total                       74.47 megs
+observed virtual drop              74.50 megs
 ```
 
-The KV cache (32 MB) is now the dominant allocation on 42M — 4× bigger
+The KV cache (32 megs) is now the dominant allocation on 42M — 4× bigger
 than on 15M because `seq_len` jumped from 256 to 1024. This is the
 lever Phase 3 should reach for if we want 42M to run *without* swap on
-48 MB hardware: truncate the KV allocation to an argv-configurable
+48 megs hardware: truncate the KV allocation to an argv-configurable
 `max_seq_len` (default 256). That alone would drop peak demand to
-~50 MB and eliminate nearly all paging.
+~50 megs and eliminate nearly all paging.
 
 ### Before/after summary
 
 | Model            | Pre-Phase-2 peak | Post-Phase-2 peak | Delta     |
 |------------------|-----------------:|------------------:|----------:|
-| `stories15M_q80` |        55.13 MB  |         19.89 MB  | −35.2 MB  |
-| `stories42M_q80` |   not measurable |         74.50 MB  | —         |
+| `stories15M_q80` |        55.13 megs  |         19.89 megs  | −35.2 megs  |
+| `stories42M_q80` |   not measurable |         74.50 megs  | —         |
 
 (15M pre-Phase-2 number from task-#2 baseline; 42M was not measurable
 pre-Phase-2 because its fp32 embedding table alone — 32000 × 512 × 4
-= 62.5 MB — would exceed the full virtual arena.)
+= 62.5 megs — would exceed the full virtual arena.)
 
 ### CWSDPMI.SWP observation — post-Phase-2
 
@@ -327,10 +327,10 @@ prefix that the Phase 1 gate checks.
 Pre-Phase-2 baseline for comparison:
 
 ```
-t=+0s       CWSDPMI.SWP = 10,436,608 bytes  (~9.95 MB, steady)
+t=+0s       CWSDPMI.SWP = 10,436,608 bytes  (~9.95 megs, steady)
 ```
 
-Before/after: **~10 MB → 0 MB** of paging pressure on memsize=48. On
+Before/after: **~10 megs → 0 megs** of paging pressure on memsize=48. On
 target hardware where swap-to-CF is undesirable, this is the headline
 Phase 2 win.
 
@@ -338,7 +338,7 @@ Phase 2 win.
 cycles=90000. Pre-Phase-2 was ~5m16s (phase1-notes.md). The two are
 close because DOSBox-X's "disk" for the SWP is host RAM — paging in
 DOSBox is almost free. On real hardware to a CF card, the pre-Phase-2
-~10 MB of paging would cost seconds to minutes per generation cycle.
+~10 megs of paging would cost seconds to minutes per generation cycle.
 The Phase 2 swap-avoidance win is real but invisible under DOSBox-X.
 
 ## Task #4 determinism result
@@ -362,7 +362,7 @@ The full allocation audit surfaces two candidates that Phase 2 did not
 touch and that Phase 3 should consider:
 
 1. **Truncatable `seq_len`.** Needed to make 42M fit without swap on
-   48 MB hardware. Cost: a new argv flag or a Config override; zero
+   48 megs hardware. Cost: a new argv flag or a Config override; zero
    compute-path change.
 2. **int8 KV cache.** A 50% KV-cache reduction via Q8_0 quantization of
    the key/value buffers. This is a lossy change and needs a

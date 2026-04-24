@@ -4,7 +4,7 @@ vellm's checkpoint format is upstream llama2.c's **Q8_0** — the
 "version 2" export from `runq.c`. We don't invent anything. Phase 2
 considered a bespoke `.q8` format (see the stub this doc replaces)
 and rejected it: `runq.c` already implements per-group symmetric
-int8 quantization with fp32 scales, which is exactly what the 48 MB
+int8 quantization with fp32 scales, which is exactly what the 48 megs
 Pentium target needs. See [`PLAN.md`](../PLAN.md) §"Upstream
 baseline: `runq.c`, not `run.c`".
 
@@ -31,13 +31,13 @@ The canonical layout reference is the code itself — read
 
 ## Why it works for DOS
 
-48 MB of DPMI RAM holds a `stories15M_q80.bin` (16.3 MB) or a
-`stories42M_q80.bin` (42.3 MB) with headroom for activations and
+48 megs of DPMI RAM holds a `stories15M_q80.bin` (16.3 megs) or a
+`stories42M_q80.bin` (42.3 megs) with headroom for activations and
 KV cache. On-the-fly row dequantization in the matmul inner loop
 keeps the working-set cache-friendly on the P54C's 32 KB L1. See
 [`docs/phase2-memory.md`](./phase2-memory.md) for the arena +
 dequant strategy, and [`docs/phase3-notes.md`](./phase3-notes.md)
-for the int8 KV-cache extension that brings 42M under the 48 MB
+for the int8 KV-cache extension that brings 42M under the 48 megs
 ceiling without paging.
 
 ## How to produce

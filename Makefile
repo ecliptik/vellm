@@ -109,7 +109,7 @@ hello.exe: tests/smoketest/hello.c
 #   VELLM.EXE        — the DJGPP-built inference binary
 #   CWSDPMI.EXE      — required DPMI host; must ship alongside vellm.exe
 #   CWSDPMI.DOC      — cwsdpmi license/readme (THIRD-PARTY.md requirement)
-#   STORY15.BIN — TinyStories Q8_0 checkpoint (~15 MB, from karpathy/llama2.c release)
+#   STORY15.BIN — TinyStories Q8_0 checkpoint (~15 megs, from karpathy/llama2.c release)
 #   TOKEN.BIN    — 32K-vocab SentencePiece tokenizer
 #   RUN.BAT          — canned invocation with the Phase 1 golden-test args
 
@@ -198,7 +198,7 @@ vellm - TinyStories inference on MS-DOS 6.22
 
 vellm is a port of karpathy/llama2.c's int8-quantized inference
 (runq.c) to MS-DOS 6.22 + DJGPP + CWSDPMI, targeting a Pentium
-Overdrive 83 MHz (Socket 3, P54C core, no MMX) with 48 MB of RAM.
+Overdrive 83 MHz (Socket 3, P54C core, no MMX) with 48 megs of RAM.
 It runs the TinyStories 15M and 42M Q8_0 checkpoints from upstream.
 
 HOW TO RUN
@@ -240,8 +240,8 @@ alongside VELLM.EXE. License is in CWSDPMI.DOC.
 MEMORY
 ------
 
-Requires approximately 20 MB of free DPMI memory for the 15M model
-and 45 MB for 42M with --MAX-SEQ-LEN 256. The 48 MB target machine
+Requires approximately 20 megs of free DPMI memory for the 15M model
+and 45 megs for 42M with --MAX-SEQ-LEN 256. The 48 megs target machine
 has enough headroom for both configurations with no CWSDPMI.SWP
 growth. See docs/phase3-notes.md in the repo for the full matrix.
 
@@ -270,7 +270,7 @@ export CF_README_TEMPLATE
 define CF_README_42M_RUN
 
         BENCH42.BAT     Same benchmark on stories42M_q80 with
-                        --MAX-SEQ-LEN 256 (42M fits under the 48 MB
+                        --MAX-SEQ-LEN 256 (42M fits under the 48 megs
                         ceiling with no swap in this configuration).
                         ~8 min on a Pentium/83.
 
@@ -341,7 +341,7 @@ cf-package: vellm.exe
 	@tar -C "$(CF_STAGE)" -czf "$(CF_TARGZ)" .
 	@echo "cf-package: built $(CF_ZIP) ($$(stat -c '%s' $(CF_ZIP)) bytes)"
 	@echo "cf-package: built $(CF_TARGZ) ($$(stat -c '%s' $(CF_TARGZ)) bytes)"
-	@# Size-budget sanity checks. 42M present: 50 MB cap. 15M only: 12 MB cap.
+	@# Size-budget sanity checks. 42M present: 50 megs cap. 15M only: 12 megs cap.
 	@if [ -f "$(MODEL_42M_BIN)" ]; then BUDGET=52428800; else BUDGET=12582912; fi; \
 	    for a in $(CF_ZIP) $(CF_TARGZ); do \
 	        sz=$$(stat -c '%s' "$$a"); \

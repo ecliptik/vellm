@@ -1,8 +1,8 @@
 # vellm
 
-vellm is a port of [karpathy/llama2.c](https://github.com/karpathy/llama2.c) (`runq.c`, the int8 variant) to MS-DOS 6.22. It runs [TinyStories](https://huggingface.co/karpathy/tinyllamas) 15M and 42M checkpoints on an 83 MHz Intel [Pentium OverDrive](https://en.wikipedia.org/wiki/Pentium_OverDrive) with 48 MB of RAM, via [DJGPP](https://www.delorie.com/djgpp/) and CWSDPMI. Pronounced *[vellum](https://en.wikipedia.org/wiki/Vellum)*, after the parchment that served as the primary writing surface before paper.
+vellm is a port of [karpathy/llama2.c](https://github.com/karpathy/llama2.c) (`runq.c`, the int8 variant) to MS-DOS 6.22. It runs [TinyStories](https://huggingface.co/karpathy/tinyllamas) 15M and 42M checkpoints on an 83 MHz Intel [Pentium OverDrive](https://en.wikipedia.org/wiki/Pentium_OverDrive) with 48 megs of RAM, via [DJGPP](https://www.delorie.com/djgpp/) and CWSDPMI. Pronounced *[vellum](https://en.wikipedia.org/wiki/Vellum)*, after the parchment that served as the primary writing surface before paper.
 
-[TinyStories](https://arxiv.org/abs/2305.07759) is a synthetic dataset of simple children's-story text, built by Microsoft Research to study how small a language model can be while still producing coherent English. The [tinyllamas](https://huggingface.co/karpathy/tinyllamas) checkpoints trained on it (15 and 42 million parameters, vs. 7+ billion for a typical modern LLM) are small enough to quantize to Q8_0 and fit in 48 MB of DOS memory.
+[TinyStories](https://arxiv.org/abs/2305.07759) is a synthetic dataset of simple children's-story text, built by Microsoft Research to study how small a language model can be while still producing coherent English. The [tinyllamas](https://huggingface.co/karpathy/tinyllamas) checkpoints trained on it (15 and 42 million parameters, vs. 7+ billion for a typical modern LLM) are small enough to quantize to Q8_0 and fit in 48 megs of DOS memory.
 
 This project was 100% built agentically using [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
@@ -21,16 +21,16 @@ This project was 100% built agentically using [Claude Code](https://docs.anthrop
 ## Minimum Requirements
 
 - Intel Pentium-class CPU (P5, P54C, or OverDrive)
-- 48 MB RAM for `stories42M_q80`; 24 MB is enough for `stories15M_q80`
+- 48 megs RAM for `stories42M_q80`; 24 megs is enough for `stories15M_q80`
 - MS-DOS 6.22 or compatible (HIMEM.SYS required; EMM386 not recommended)
-- IDE / CF storage with ~50 MB free
+- IDE / CF storage with ~50 megs free
 - CWSDPMI r7 (shipped in the CF package)
 
 ## Features
 
 **Inference**
 - [TinyStories 15M and 42M](https://huggingface.co/karpathy/tinyllamas) quantized to Q8_0 via upstream `export.py --version 2`
-- On-the-fly row dequantization for the token-embedding table (saves 35 MB on 15M)
+- On-the-fly row dequantization for the token-embedding table (saves 35 megs on 15M)
 - int8 KV cache with per-head fp32 scales (halves the KV footprint on 42M)
 - Single-arena runtime allocator — one `malloc` at startup, no per-token allocations, deterministic across runs
 - `--max-seq-len` cap clamps the KV cache below the checkpoint's native `seq_len` for memory-constrained configs
@@ -77,7 +77,7 @@ VELLM.EXE STORY15.BIN -z TOKEN.BIN -t 0.8 -i "In the old computer"
 REM longer generation (default is 256 tokens)
 VELLM.EXE STORY15.BIN -z TOKEN.BIN -t 0.8 -n 400 -i "A DOS prompt"
 
-REM 42M for better story quality - must cap seq_len to fit 48 MB
+REM 42M for better story quality - must cap seq_len to fit 48 megs
 VELLM.EXE STORY42.BIN -z TOKEN.BIN -L 128 -t 0.8 -i "The floppy drive"
 ```
 
@@ -90,7 +90,7 @@ VELLM.EXE STORY42.BIN -z TOKEN.BIN -L 128 -t 0.8 -i "The floppy drive"
 | `-S N` | Random seed | omit for time-based; fix for reproducibility |
 | `-N N` | Max tokens to generate | default `256` |
 | `-I "..."` | Prompt string | quote it |
-| `-L N` | KV cache cap (`--max-seq-len`) | required for 42M on 48 MB: use `-L 128` |
+| `-L N` | KV cache cap (`--max-seq-len`) | required for 42M on 48 megs: use `-L 128` |
 | `-Z PATH` | Tokenizer path | always `TOKEN.BIN` for stock models |
 | `--BENCHMARK` / `-B` | Machine-parseable benchmark mode | fixed seed/prompt/temp |
 
@@ -98,7 +98,7 @@ VELLM.EXE STORY42.BIN -z TOKEN.BIN -L 128 -t 0.8 -i "The floppy drive"
 
 Canonical 200-token run, seed 42, temp 0. Full matrix in [`bench/results.md`](./bench/results.md).
 
-| Platform | Model | Tokens | Gen tok/s | Wall | Peak MB |
+| Platform | Model | Tokens | Gen tok/s | Wall | Peak megs |
 |---|---|---:|---:|---:|---:|
 | **Real PODP5V83 (83 MHz)** | [15M q80](https://huggingface.co/karpathy/tinyllamas) | 200 | **0.27** | **11m 56s** | 19.8 |
 | **Real PODP5V83 (83 MHz)** | [42M q80](https://huggingface.co/karpathy/tinyllamas), `-L 128` | 128 | **0.11** | **19m 48s** | **45.0** |
@@ -106,7 +106,7 @@ Canonical 200-token run, seed 42, temp 0. Full matrix in [`bench/results.md`](./
 | DOSBox-X (cycles=fixed 90000) | [42M q80](https://huggingface.co/karpathy/tinyllamas), `-L 256` | 200 | 0.41 | 8m 11s | 46.1 |
 | Host Linux (i7-8700K, upstream runq.c) | [15M q80](https://huggingface.co/karpathy/tinyllamas) | 200 | ~96 | ~2.1s | — |
 
-42M uses `--max-seq-len 128` on real hardware to stay under CWSDPMI's ~45 MB ceiling on a 48 MB box; `--benchmark` clamps the 200-token target to the cap. [`docs/hardware.md`](./docs/hardware.md) documents the DOSBox-X calibration — `cycles=fixed 90000` runs ~3.6× faster than the Pentium for this workload.
+42M uses `--max-seq-len 128` on real hardware to stay under CWSDPMI's ~45 megs ceiling on a 48 megs box; `--benchmark` clamps the 200-token target to the cap. [`docs/hardware.md`](./docs/hardware.md) documents the DOSBox-X calibration — `cycles=fixed 90000` runs ~3.6× faster than the Pentium for this workload.
 
 Sample `--- VELLM BENCHMARK ---` block (real PODP5V83 15M run):
 

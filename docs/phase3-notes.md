@@ -15,14 +15,14 @@ harness work but does not own them.
 
 `stories42M_q80.bin` advertises `seq_len=1024` in its header. The KV
 cache is sized `2 × n_layers × seq_len × (dim × n_kv_heads / n_heads)
-× sizeof(float)` which on 42M is `2 × 8 × 1024 × 512 × 4 = 32 MB` —
+× sizeof(float)` which on 42M is `2 × 8 × 1024 × 512 × 4 = 32 megs` —
 the single largest allocation post-Phase-2 and the reason 42M still
-paged ~30 MB through `CWSDPMI.SWP` on the 48 MB target (see
+paged ~30 megs through `CWSDPMI.SWP` on the 48 megs target (see
 `docs/phase2-memory.md` §"stories42M_q80 upper bound").
 
 Most prompts + generations don't need 1024 tokens. Upstream `runq.c`
 already silently caps `steps` at `config.seq_len`, but the cache is
-allocated at `config.seq_len` regardless — the extra ~24 MB of ring
+allocated at `config.seq_len` regardless — the extra ~24 megs of ring
 sits unused.
 
 ### Flag contract
@@ -49,8 +49,8 @@ observable change is less memory allocated.
 ### Memory impact
 
 Pre-capture: `stories42M_q80` at `--max-seq-len 256` (matching
-`stories15M`'s seq_len) is expected to drop peak demand from 74.50 MB
-to ~50 MB, taking 42M below the 46.55 MB physical ceiling and
+`stories15M`'s seq_len) is expected to drop peak demand from 74.50 megs
+to ~50 megs, taking 42M below the 46.55 megs physical ceiling and
 eliminating all paging.
 
 Actual measurement will be captured during task #5 integration — see
@@ -343,10 +343,10 @@ Not worth the correctness risk for a likely <5% win.
 ## Task #4 — int8 KV cache
 
 **Goal:** cut the KV cache from fp32 → int8 to get `stories42M_q80`
-under the 46.55 MB DPMI physical ceiling on the 48 MB target. Task #1
-alone (`--max-seq-len 256`) left 42M demand at ~50 MB (still paging
-~4 MB through CWSDPMI.SWP); task #4 alone (int8 KV, seq=1024) left
-it at ~51 MB. **Together** they drop 42M to 44.69 MB — first time
+under the 46.55 megs DPMI physical ceiling on the 48 megs target. Task #1
+alone (`--max-seq-len 256`) left 42M demand at ~50 megs (still paging
+~4 megs through CWSDPMI.SWP); task #4 alone (int8 KV, seq=1024) left
+it at ~51 megs. **Together** they drop 42M to 44.69 megs — first time
 it runs without swap.
 
 ### Quantization granularity: per-head scale
@@ -381,9 +381,9 @@ float  * value_cache_s // same shape as key_cache_s
 ```
 
 Arena math:
-- 15M KV: `3.38 MB fp32 → 0.84 MB int8 + 72 KB scales = 0.92 MB` (-73%).
-- 42M KV @ seq_len=1024: `32 MB → 8 MB + 512 KB = 8.5 MB` (-73%).
-- 42M KV @ --max-seq-len 256: `8 MB → 2 MB + 128 KB = 2.13 MB` (-73%).
+- 15M KV: `3.38 megs fp32 → 0.84 megs int8 + 72 KB scales = 0.92 megs` (-73%).
+- 42M KV @ seq_len=1024: `32 megs → 8 megs + 512 KB = 8.5 megs` (-73%).
+- 42M KV @ --max-seq-len 256: `8 megs → 2 megs + 128 KB = 2.13 megs` (-73%).
 
 ### Forward-path shape
 
@@ -415,18 +415,18 @@ instrumentation, reverted after capture):
 
 | Model           | Config            | Pre-task-#4 | Post-task-#4 | Δ       |
 |-----------------|-------------------|------------:|-------------:|--------:|
-| stories15M_q80  | seq_len=256       |    19.88 MB |   **17.44 MB** | -2.44 MB |
-| stories42M_q80  | seq_len=1024      |    74.50 MB |     51.06 MB | -23.44 MB |
-| stories42M_q80  | --max-seq-len 256 |       n/a*  |   **44.69 MB** | —        |
+| stories15M_q80  | seq_len=256       |    19.88 megs |   **17.44 megs** | -2.44 megs |
+| stories42M_q80  | seq_len=1024      |    74.50 megs |     51.06 megs | -23.44 megs |
+| stories42M_q80  | --max-seq-len 256 |       n/a*  |   **44.69 megs** | —        |
 
 *42M at --max-seq-len 256 was a Phase 3 combination — no pre-task-#4
 datapoint exists. For comparison, fp32 KV at seq_len=256 would be
-~50.5 MB (still above the 46.55 MB ceiling), so task #4 is what
+~50.5 megs (still above the 46.55 megs ceiling), so task #4 is what
 actually makes 42M fit.
 
-**Headline:** 42M + --max-seq-len 256 + int8 KV = 44.69 MB, under the
-46.55 MB physical ceiling by 1.86 MB. First configuration where 42M
-runs on the 48 MB target with no CWSDPMI.SWP growth.
+**Headline:** 42M + --max-seq-len 256 + int8 KV = 44.69 megs, under the
+46.55 megs physical ceiling by 1.86 megs. First configuration where 42M
+runs on the 48 megs target with no CWSDPMI.SWP growth.
 
 Wall time, canonical `stories15M_q80 -n 200`:
 
@@ -468,19 +468,19 @@ integer-quantization design; deferred.
 
 | Build                              | Gate    | Peak demand | CWSDPMI.SWP | Wall time (n=200) |
 |------------------------------------|---------|------------:|------------:|------------------:|
-| Post-Phase-2 (b5d72d0)             | primary | 19.88 MB    | 0           | 5m45s             |
-| Phase 3 + Experiment A (flags)     | primary | 19.88 MB    | 0           | 2m43s             |
-| Phase 3 + Exp A + B (IDIV→shift)   | primary | 19.88 MB    | 0           | 2m40.5s           |
-| Phase 3 + A + B + #4 int8 KV       | primary | **17.44 MB**| 0           | **2m59s**         |
+| Post-Phase-2 (b5d72d0)             | primary | 19.88 megs    | 0           | 5m45s             |
+| Phase 3 + Experiment A (flags)     | primary | 19.88 megs    | 0           | 2m43s             |
+| Phase 3 + Exp A + B (IDIV→shift)   | primary | 19.88 megs    | 0           | 2m40.5s           |
+| Phase 3 + A + B + #4 int8 KV       | primary | **17.44 megs**| 0           | **2m59s**         |
 
 ### stories42M_q80 at memsize=48
 
 | Build                                                | Peak demand | CWSDPMI.SWP |
 |------------------------------------------------------|------------:|------------:|
-| Post-Phase-2 (b5d72d0)                               |    74.50 MB |       ~30 MB |
-| Phase 3 + `--max-seq-len 256` only                   |    ~50.5 MB |       ~4 MB |
-| Phase 3 + int8 KV only (seq_len=1024)                |    51.06 MB |     ~4.5 MB |
-| Phase 3 + `--max-seq-len 256` + int8 KV (task #4)    | **44.69 MB**|       **0** |
+| Post-Phase-2 (b5d72d0)                               |    74.50 megs |       ~30 megs |
+| Phase 3 + `--max-seq-len 256` only                   |    ~50.5 megs |       ~4 megs |
+| Phase 3 + int8 KV only (seq_len=1024)                |    51.06 megs |     ~4.5 megs |
+| Phase 3 + `--max-seq-len 256` + int8 KV (task #4)    | **44.69 megs**|       **0** |
 
 ## Task #5 — final integration
 

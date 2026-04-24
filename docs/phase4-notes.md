@@ -108,7 +108,7 @@ Richer deploy bundle than `make dist`:
   `models/stories42M_q80.bin` is present, `BENCH42.BAT` (42M at
   `--max-seq-len 256`) + the 42M checkpoint itself.
 - Size-budget checks at the end: warns (doesn't fail) if zip or
-  tar.gz exceeds 12 MB (15M-only) or 50 MB (15M+42M).
+  tar.gz exceeds 12 megs (15M-only) or 50 megs (15M+42M).
 
 ### Measured sizes
 

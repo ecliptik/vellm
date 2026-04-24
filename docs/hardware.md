@@ -3,7 +3,7 @@
 The primary target is documented in `CLAUDE.md`:
 
 - Intel Pentium Overdrive PODP5V83 (83 MHz, Socket 3, P54C, no MMX)
-- 48 MB RAM
+- 48 megs RAM
 - Anigma LP4IP1 motherboard
 - CF-to-IDE (2 GB MS-DOS 6.22 + WfW 3.11; 4 GB Win95 OSR2.5)
 - ATI Mach64 215CT PCI (VGA text mode only)
@@ -24,7 +24,7 @@ First real-hardware run landed 2026-04-24 on commit
 | CPU | Intel Pentium OverDrive PODP5V83, 83 MHz, Socket 3, P54C core, no MMX |
 | CPUID | `GenuineIntel family 5 model 3 stepping 2` (Overdrive variant — note `model 3` vs DOSBox-X's `model 1`) |
 | L1 cache | 32 KB |
-| RAM | 48 MB |
+| RAM | 48 megs |
 | Motherboard | Anigma LP4IP1 |
 | BIOS date | _TBD — to be read off the POST screen_ |
 | Storage | CF-to-IDE, 2 GB card (MS-DOS 6.22 + Windows for Workgroups 3.11) |
@@ -33,23 +33,23 @@ First real-hardware run landed 2026-04-24 on commit
 
 ### Benchmark results on real hardware
 
-| Model | Max seq | Tokens | Prompt tok/s | Gen tok/s | Wall | Peak MB |
+| Model | Max seq | Tokens | Prompt tok/s | Gen tok/s | Wall | Peak megs |
 |---|---:|---:|---:|---:|---:|---:|
 | `stories15M_q80` | default (256) | 200 | 0.28 | 0.27 | 11m 56s (715.6 s) | 19.79 |
 | `stories42M_q80 --max-seq-len 128` | 128 | 128 | 0.08 | 0.11 | 19m 48s (1187.7 s) | **45.01** |
 
 42M on real hardware uses `--max-seq-len 128` rather than the DOSBox-X
-`256` configuration: real-DOS CWSDPMI has ~1.4 MB more overhead than
-DOSBox-X models, which pushed `--max-seq-len 256` about 1–2 MB over
+`256` configuration: real-DOS CWSDPMI has ~1.4 megs more overhead than
+DOSBox-X models, which pushed `--max-seq-len 256` about 1–2 megs over
 the physical ceiling and produced visible paging. `-L 128` saves
-~1 MB of KV cache and lands at 45.0 MB peak — right at the ceiling
+~1 megs of KV cache and lands at 45.0 megs peak — right at the ceiling
 but unpaged. `--benchmark` mode clamps its canonical 200-token target
 to the cap, so the 42M row reports 128 tokens; tok/s stays directly
 comparable to the 15M row.
 
-On a clean 48 MB DOS 6.22 config (HIMEM only, no EMM386/SMARTDRV/
-MSCDEX), `mem /c` reports 47 MB of free XMS. CWSDPMI claims ~2 MB
-for its own structures, leaving ~45 MB usable for DPMI clients —
+On a clean 48 megs DOS 6.22 config (HIMEM only, no EMM386/SMARTDRV/
+MSCDEX), `mem /c` reports 47 megs of free XMS. CWSDPMI claims ~2 megs
+for its own structures, leaving ~45 megs usable for DPMI clients —
 exactly where 42M's peak lands.
 
 ## DOSBox-X vs real-hardware calibration
@@ -87,13 +87,13 @@ What this means for DOSBox-X users:
   tradeoff for a correctness gate, which only needs the first 192
   bytes to match. Real-HW wall time is irrelevant to the gate.
 - **Memory footprint is accurate across both.** Peak memory on
-  real hardware (19.79 MB) matches the DOSBox-X projection to the
-  byte (19.9 MB from `bench/results.md`). DPMI allocation sizes
+  real hardware (19.79 megs) matches the DOSBox-X projection to the
+  byte (19.9 megs from `bench/results.md`). DPMI allocation sizes
   don't depend on CPU simulation fidelity — `memsize = 48` +
-  CWSDPMI r7 in DOSBox-X is a faithful model of the 48 MB real
+  CWSDPMI r7 in DOSBox-X is a faithful model of the 48 megs real
   target for memory planning.
 
-## Model size vs. 48 MB target (Phase 3 final)
+## Model size vs. 48 megs target (Phase 3 final)
 
 Captured post-Phase-3 on commits `74460cf` (flags) `4b4b969` (IDIV→shift)
 `fd1480b` (int8 KV cache). All runs under DOSBox-X `memsize = 48,
@@ -107,14 +107,14 @@ cycles = fixed 90000` with CWSDPMI r7 to match the target PODP5V83.
 
 | Model + flags                              | Disk     | Config (dim/hidden/layers/vocab/seq) | DOSBox-X peak  | Real PODP5V83 peak | Swap peak | Fit at memsize=48     | DOSBox-X wall (n=200) |
 |---------------------------------------------|---------:|---------------------------------------|---------------:|-------------------:|----------:|-----------------------|---------------------:|
-| `stories15M_q80`                            | 16.31 MB | 288 / 768 / 6 / 32000 / 256           | **17.44 MB**   | **19.79 MB**       | 0         | **fits, no swap**     | **2m59s**            |
-| `stories42M_q80` (default)                  | 42.27 MB | 512 / 1376 / 8 / 32000 / 1024         | 51.06 MB       | _doesn't fit_      | ~4.5 MB   | fits, paging          | —                    |
-| `stories42M_q80 --max-seq-len 256`          | 42.27 MB | 512 / 1376 / 8 / 32000 / **256 (cap)** | **44.69 MB**   | **pages (~10 MB)** | **0** (DOSBox-X) / ~10 MB (real HW) | DOSBox-X: no swap / real HW: pages | —                    |
-| `stories42M_q80 --max-seq-len 128`          | 42.27 MB | 512 / 1376 / 8 / 32000 / **128 (cap)** | ~43.6 MB (proj) | **45.01 MB**       | **0**     | **fits, no swap**     | —                    |
+| `stories15M_q80`                            | 16.31 megs | 288 / 768 / 6 / 32000 / 256           | **17.44 megs**   | **19.79 megs**       | 0         | **fits, no swap**     | **2m59s**            |
+| `stories42M_q80` (default)                  | 42.27 megs | 512 / 1376 / 8 / 32000 / 1024         | 51.06 megs       | _doesn't fit_      | ~4.5 megs   | fits, paging          | —                    |
+| `stories42M_q80 --max-seq-len 256`          | 42.27 megs | 512 / 1376 / 8 / 32000 / **256 (cap)** | **44.69 megs**   | **pages (~10 megs)** | **0** (DOSBox-X) / ~10 megs (real HW) | DOSBox-X: no swap / real HW: pages | —                    |
+| `stories42M_q80 --max-seq-len 128`          | 42.27 megs | 512 / 1376 / 8 / 32000 / **128 (cap)** | ~43.6 megs (proj) | **45.01 megs**       | **0**     | **fits, no swap**     | —                    |
 
-Physical ceiling at `memsize=48`: **46.55 MB**. The headline is the last
+Physical ceiling at `memsize=48`: **46.55 megs**. The headline is the last
 row — `stories42M_q80 + --max-seq-len 256 + int8 KV` is the first
-configuration that fits 42M onto the 48 MB target with zero paging.
+configuration that fits 42M onto the 48 megs target with zero paging.
 
 The Phase 3 "Peak demand" column captured the virtual-arena drop
 from `main-entry` to `after-build_transformer` (arena alone). The
@@ -123,24 +123,24 @@ from `main-entry` to `after-build_transformer` (arena alone). The
 reported by `--benchmark`'s `peak mem` line. Both are correct in
 their own frame — see [`bench/results.md`](../bench/results.md)
 §"Observations" for the full reconciliation. The 15M real-HW peak
-(19.79 MB) matches the DOSBox-X `--benchmark` measurement
-(19.9 MB) to the byte.
+(19.79 megs) matches the DOSBox-X `--benchmark` measurement
+(19.9 megs) to the byte.
 
 ### Per-phase memory history — `stories15M_q80`
 
 | Phase            | Peak demand | Swap peak | Wall time (n=200) | Gate    |
 |------------------|------------:|----------:|------------------:|---------|
-| Phase 1 port     | 55.13 MB    | ~10 MB    | ~5m16s            | primary |
-| Phase 2 (arena + dequant) | 19.88 MB | 0    | 5m45s             | primary |
-| Phase 3 (#3 flags)| 19.88 MB   | 0         | 2m43s             | primary |
-| Phase 3 (#3 A+B)  | 19.88 MB   | 0         | 2m40.5s           | primary |
-| Phase 3 (#3+#4)   | **17.44 MB** | 0       | **2m59s**         | primary |
+| Phase 1 port     | 55.13 megs    | ~10 megs    | ~5m16s            | primary |
+| Phase 2 (arena + dequant) | 19.88 megs | 0    | 5m45s             | primary |
+| Phase 3 (#3 flags)| 19.88 megs   | 0         | 2m43s             | primary |
+| Phase 3 (#3 A+B)  | 19.88 megs   | 0         | 2m40.5s           | primary |
+| Phase 3 (#3+#4)   | **17.44 megs** | 0       | **2m59s**         | primary |
 
 - `stories15M` clears the Phase 1 primary 192-byte gate at every Phase 3
   stage — no tolerance fallback needed despite `-ffast-math` and int8 KV.
 - Wall-time speedup Phase 2 → Phase 3 final: **1.93×** (5m45s → 2m59s).
 - Phase-3 #4 (int8 KV) traded ~18.5s of the Phase-3 #3 speed win for
-  2.44 MB of memory headroom. 15M didn't need the memory, but the
+  2.44 megs of memory headroom. 15M didn't need the memory, but the
   trade-off is good insurance for tighter configs and necessary for
   42M to fit.
 
@@ -148,27 +148,27 @@ their own frame — see [`bench/results.md`](../bench/results.md)
 
 | Phase            | Config            | Peak demand | Swap peak |
 |------------------|-------------------|------------:|----------:|
-| Phase 2 (arena + dequant) | seq_len=1024 | 74.50 MB   | ~30 MB    |
-| Phase 3 task #1  | `--max-seq-len 256` only | ~50.5 MB | ~4 MB    |
-| Phase 3 task #4  | seq_len=1024, int8 KV | 51.06 MB | ~4.5 MB  |
-| Phase 3 **final** | `--max-seq-len 256 + int8 KV` | **44.69 MB** | **0** |
+| Phase 2 (arena + dequant) | seq_len=1024 | 74.50 megs   | ~30 megs    |
+| Phase 3 task #1  | `--max-seq-len 256` only | ~50.5 megs | ~4 megs    |
+| Phase 3 task #4  | seq_len=1024, int8 KV | 51.06 megs | ~4.5 megs  |
+| Phase 3 **final** | `--max-seq-len 256 + int8 KV` | **44.69 megs** | **0** |
 
 Neither task #1 nor task #4 alone is enough to take 42M under the
-46.55 MB physical ceiling. Together they are.
+46.55 megs physical ceiling. Together they are.
 
-### 42M now runs unpaged on 48 MB hardware
+### 42M now runs unpaged on 48 megs hardware
 
-`stories42M_q80` previously paged ~30 MB through CWSDPMI's swap file
-on the 48 MB target. Phase 3 resolves this. Conclusions for Phase 5:
+`stories42M_q80` previously paged ~30 megs through CWSDPMI's swap file
+on the 48 megs target. Phase 3 resolves this. Conclusions for Phase 5:
 
-- **15M is the comfortable target** at 48 MB, no paging, ~2m59s for
+- **15M is the comfortable target** at 48 megs, no paging, ~2m59s for
   200 tokens under DOSBox-X.
-- **42M is the usable stretch target** at 48 MB with
+- **42M is the usable stretch target** at 48 megs with
   `--max-seq-len 256`. No paging, full int8-KV-cache advantage. The
   wall-clock number on 42M under DOSBox-X isn't captured here because
   task #5's benchmark is the 15M canonical; capture in Phase 5 on
   real hardware.
-- **64 MB+ hardware** runs 42M at full seq_len=1024 with fp32 KV if
+- **64 megs+ hardware** runs 42M at full seq_len=1024 with fp32 KV if
   correctness is paramount and CPU is free — reference configuration,
   not primary target.
 

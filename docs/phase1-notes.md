@@ -31,7 +31,7 @@ is downloadable. The q80 variant is a host-side derivative produced by
 Working pipeline used during task #1:
 
 ```bash
-# Install PyTorch CPU build on the host (one-time, ~200 MB)
+# Install PyTorch CPU build on the host (one-time, ~200 megs)
 python3 -m pip install --break-system-packages torch --index-url \
     https://download.pytorch.org/whl/cpu
 
@@ -46,7 +46,7 @@ curl -sSL -o stories15M.pt \
     "https://huggingface.co/karpathy/tinyllamas/resolve/main/stories15M.pt"
 cp /path/to/vellm/vendor/llama2.c/export.py .
 
-# Run the quantizer. Output is ~17 MB.
+# Run the quantizer. Output is ~17 megs.
 python3 export.py stories15M_q80.bin --version 2 --checkpoint stories15M.pt
 ```
 
@@ -99,13 +99,13 @@ under pure DOS 6.22.
 
 Observation from a kept staging dir mid-run:
 
-- `CWSDPMI.SWP` grew to ~10 MB while `STDOUT.TXT` was still 0 bytes.
-- `MODEL.BIN` is 17 MB resident. vellm allocates another ~3 MB of
+- `CWSDPMI.SWP` grew to ~10 megs while `STDOUT.TXT` was still 0 bytes.
+- `MODEL.BIN` is 17 megs resident. vellm allocates another ~3 megs of
   activations / KV cache / runstate. CWSDPMI overhead on top.
-- Config: `memsize = 48` (MB), which matches the target PODP5V83. DOSBox-X
+- Config: `memsize = 48` (megs), which matches the target PODP5V83. DOSBox-X
   still pages because CWSDPMI's DPMI arena is smaller than the real
   physical — it reserves memory for the extender, the stub, and
-  conventional DOS, so effective allocatable is well under 48 MB.
+  conventional DOS, so effective allocatable is well under 48 megs.
 - Consequence: stdout grows slowly at first (several seconds with zero
   output while the model streams through the DPMI arena once per token
   generation) then picks up. This looked like a wedge the first time we
@@ -124,7 +124,7 @@ arena approach in PLAN.md § Phase 2 isn't optional — it's the difference
 between 5 min and (hopefully) ~30 s of DOSBox-X wall time per 200-token
 run. It also means the ~1.25 tok/s we measured is an under-estimate for
 real hardware performance, because a real PODP5V83 doesn't page when it
-fits in 48 MB of real DRAM.
+fits in 48 megs of real DRAM.
 
 ## FP precision mismatch — the Phase 1 gate failure
 
@@ -215,7 +215,7 @@ at line 9 plus 14 per-change annotations. Summary of the 14 code changes:
 |  238 | `fopen(checkpoint, "rb")` — mandatory to avoid CRLF corruption      |
 |  260 | `ftell` returns 32-bit long on DJGPP; fine for these checkpoints    |
 |  262 | Slurp checkpoint via `malloc + fread` (no mmap)                     |
-|  263 | 48 MB DPMI is plenty for 15M/42M q80                                |
+|  263 | 48 megs DPMI is plenty for 15M/42M q80                                |
 |  275 | `fd = -1` — struct parity with upstream; no real fd on DOS          |
 |  300 | `free(data)` in place of `munmap` on teardown                       |
 |  543 | `fopen(tokenizer, "rb")` — same CRLF reasoning as checkpoint        |

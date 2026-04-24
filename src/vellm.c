@@ -107,8 +107,8 @@ typedef struct {
     float *logits; // output logits
     // DOS-PORT: int8-quantized KV cache with a per-head fp32 scale. Upstream
     // DOS-PORT: stores the fp32 k/v vectors verbatim — on stories42M at its
-    // DOS-PORT: baked-in seq_len=1024 that's 32 MB of cache, blowing through
-    // DOS-PORT: the 48 MB DPMI ceiling. Per-head scale (one float per pos
+    // DOS-PORT: baked-in seq_len=1024 that's 32 megs of cache, blowing through
+    // DOS-PORT: the 48 megs DPMI ceiling. Per-head scale (one float per pos
     // DOS-PORT: per layer per kv-head) gives ~3.8× reduction with minimal
     // DOS-PORT: quantization error — each attention inner loop already walks
     // DOS-PORT: one head at a time, so the scale is a single fp32 multiply
@@ -124,7 +124,7 @@ typedef struct {
 
 // DOS-PORT: single pre-allocated arena replaces the 15 scattered calloc() calls
 // DOS-PORT: in malloc_run_state() below — avoids DPMI heap fragmentation and
-// DOS-PORT: makes peak RunState memory deterministic on the 48 MB PODP5V83.
+// DOS-PORT: makes peak RunState memory deterministic on the 48 megs PODP5V83.
 // DOS-PORT: 16-byte-aligned bump allocator; zeroed once at init so arena_alloc
 // DOS-PORT: returns zero-filled memory (preserves upstream's calloc semantics).
 typedef struct {
@@ -308,10 +308,10 @@ void memory_map_weights(TransformerWeights *w, Config* p, void* ptr, uint8_t sha
     ptr = (void*)fptr; // now cast the pointer back to void*
     w->q_tokens = init_quantized_tensors(&ptr, 1, p->vocab_size * p->dim);
     // DOS-PORT: skip upstream's full vocab_size × dim fp32 dequant of the token
-    // DOS-PORT: embedding table — that table is 35.16 MB on stories15M and is what
-    // DOS-PORT: drives CWSDPMI.SWP growth on the 48 MB target (see docs/phase2-memory.md).
+    // DOS-PORT: embedding table — that table is 35.16 megs on stories15M and is what
+    // DOS-PORT: drives CWSDPMI.SWP growth on the 48 megs target (see docs/phase2-memory.md).
     // DOS-PORT: Instead we dequantize one row on demand at lookup in forward(),
-    // DOS-PORT: keeping only the Q8_0 form (~8.25 MB) resident. Numerically
+    // DOS-PORT: keeping only the Q8_0 form (~8.25 megs) resident. Numerically
     // DOS-PORT: identical: same qx->q[i] * qx->s[i/GS] formula, just lazy.
     w->token_embedding_table = NULL;
 
@@ -362,7 +362,7 @@ void read_checkpoint(char* checkpoint, Config* config, TransformerWeights* weigh
     // DOS-PORT: ftell returns long (32-bit on DJGPP); 15M/42M checkpoints fit comfortably.
     *file_size = ftell(file); // get the file size, in bytes
     // DOS-PORT: no mmap on DOS — slurp the whole checkpoint into a malloc'd arena via fread.
-    // DOS-PORT: 48 MB DPMI is plenty for 15M/42M q80. File stays resident until free_transformer.
+    // DOS-PORT: 48 megs DPMI is plenty for 15M/42M q80. File stays resident until free_transformer.
     rewind(file);
     *data = malloc(*file_size);
     if (*data == NULL) {
@@ -386,7 +386,7 @@ void build_transformer(Transformer *t, char* checkpoint_path, int max_seq_len) {
     // DOS-PORT: optional --max-seq-len cap on KV cache allocation; checkpoint
     // DOS-PORT: seq_len is an upper bound, not a hard requirement. On stories42M
     // DOS-PORT: (seq_len=1024) the KV cache dominates peak memory — capping at
-    // DOS-PORT: 256 reclaims ~24 MB so 42M fits in 48 MB DPMI without swap.
+    // DOS-PORT: 256 reclaims ~24 megs so 42M fits in 48 megs DPMI without swap.
     // DOS-PORT: Cap happens BEFORE runstate_arena_size so the arena is sized to
     // DOS-PORT: the reduced seq_len. forward()'s use of p->seq_len as the kv
     // DOS-PORT: stride then Just Works — no forward-path changes needed.
@@ -513,7 +513,7 @@ float* forward(Transformer* transformer, int token, int pos) {
     int head_size = dim / p->n_heads;
 
     // DOS-PORT: on-the-fly row dequant — upstream memcpy's from a pre-dequantized
-    // DOS-PORT: fp32 table (35 MB on stories15M). See memory_map_weights(). The
+    // DOS-PORT: fp32 table (35 megs on stories15M). See memory_map_weights(). The
     // DOS-PORT: arithmetic below matches upstream's dequantize() byte-for-byte
     // DOS-PORT: (same q[i] * s[i/GS] form), just computed per-row instead of once
     // DOS-PORT: at load. Cost: ~dim multiplies per token, negligible vs. matmul.
@@ -1555,20 +1555,20 @@ static unsigned int bench_conv_kb(void) {
 }
 
 // DOS-PORT: Physical extended memory in KB via INT 15h. Reports actual RAM
-// DOS-PORT: above 1 MB, not DPMI virtual address space. Uses E801h (post-1994
-// DOS-PORT: standard, unambiguous above 64 MB) and falls back to AH=88h (16-bit
-// DOS-PORT: AX = KB extended, capped at ~64 MB) for older BIOSes. This is the
-// DOS-PORT: "your machine has N MB of RAM" figure the banner should show —
+// DOS-PORT: above 1 megs, not DPMI virtual address space. Uses E801h (post-1994
+// DOS-PORT: standard, unambiguous above 64 megs) and falls back to AH=88h (16-bit
+// DOS-PORT: AX = KB extended, capped at ~64 megs) for older BIOSes. This is the
+// DOS-PORT: "your machine has N megs of RAM" figure the banner should show —
 // DOS-PORT: CWSDPMI's _go32_dpmi_get_free_memory_information() returns the
 // DOS-PORT: virtual address space including paging-file potential, which on
-// DOS-PORT: a 48 MB box routinely shows 150+ MB and misleads the reader.
+// DOS-PORT: a 48 megs box routinely shows 150+ megs and misleads the reader.
 static unsigned long bench_ext_kb(void) {
 #if defined __DJGPP__
     __dpmi_regs r;
 
     /* E801h: ES:DI untouched, CF clear on success. Returns
-     *   AX/CX = extended memory 1-16 MB in KB (both registers same value)
-     *   BX/DX = extended memory above 16 MB in 64-KB blocks
+     *   AX/CX = extended memory 1-16 megs in KB (both registers same value)
+     *   BX/DX = extended memory above 16 megs in 64-KB blocks
      * Some BIOSes zero AX/BX and return only in CX/DX; handle both. */
     memset(&r, 0, sizeof r);
     r.x.ax = 0xE801;
@@ -1579,8 +1579,8 @@ static unsigned long bench_ext_kb(void) {
         return (unsigned long)below16 + (unsigned long)above16 * 64u;
     }
 
-    /* Fall back to AH=88h: AX = KB of extended memory. Capped at 64 MB - 1 KB
-     * because AX is 16 bits. On a 48 MB target this is sufficient. */
+    /* Fall back to AH=88h: AX = KB of extended memory. Capped at 64 megs - 1 KB
+     * because AX is 16 bits. On a 48 megs target this is sufficient. */
     memset(&r, 0, sizeof r);
     r.h.ah = 0x88;
     __dpmi_int(0x15, &r);
@@ -1687,12 +1687,12 @@ static void bench_hw_banner(FILE *out) {
     }
     if (ext_kb > 0) {
         /* Report physical RAM: conventional (640 KB on any sane config) plus
-         * extended-memory detection via INT 15h. Round-to-nearest-MB on the
-         * total so a 48 MB machine reads "48 MB" even if HIMEM shaved a few
+         * extended-memory detection via INT 15h. Round-to-nearest-megs on the
+         * total so a 48 megs machine reads "48 megs" even if HIMEM shaved a few
          * KB of XMS handles from the reported extended figure. */
         unsigned long total_kb = (unsigned long)conv_kb + ext_kb;
         unsigned long total_mb = (total_kb + 512) / 1024;
-        fprintf(out, "MEM: %lu MB RAM (%u KB conv + %.1f MB ext)\n",
+        fprintf(out, "MEM: %lu megs RAM (%u KB conv + %.1f megs ext)\n",
                 total_mb, conv_kb, (double)ext_kb / 1024.0);
     } else if (conv_kb > 0) {
         fprintf(out, "MEM: %u KB conv\n", conv_kb);
@@ -1830,7 +1830,7 @@ int main(int argc, char *argv[]) {
         /* DOS-PORT: if the operator capped --max-seq-len below 200, clamp the
          * canonical 200-token target to fit the KV cache. Preserves benchmark
          * utility for memory-constrained configurations (e.g. stories42M_q80
-         * on 48 MB real DOS, where even -L 200 still pages). The benchmark
+         * on 48 megs real DOS, where even -L 200 still pages). The benchmark
          * output's `tokens` field reports the actual count, so parsers see
          * what happened; tok/s figures remain directly comparable across
          * scenarios because they're rates, not totals. */

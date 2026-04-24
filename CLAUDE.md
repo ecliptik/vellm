@@ -11,7 +11,7 @@ See `PLAN.md` for the phased implementation roadmap.
 ## Target Hardware
 
 - **CPU:** Intel Pentium Overdrive PODP5V83 (83 MHz, Socket 3, P54C core, 32 KB L1, **no MMX**)
-- **RAM:** 48 MB
+- **RAM:** 48 megs
 - **Board:** Anigma LP4IP1
 - **Storage:** CF-to-IDE (2 GB card with MS-DOS 6.22 + WfW 3.11; 4 GB card with Win95 OSR2.5)
 - **Video:** ATI Mach64 215CT PCI (VGA text mode used; no graphics needed)
@@ -95,7 +95,7 @@ pkill -x dosbox-x                           # stop it (or Ctrl+F9 in window)
 ## Critical Rules
 
 - **Always `fopen(path, "rb")`.** DJGPP defaults to text mode; CRLF translation will corrupt checkpoints silently.
-- **No `mmap`.** Use `malloc` + `fread`. 48 MB on-device is plenty; upstream already supports the non-mmap path.
+- **No `mmap`.** Use `malloc` + `fread`. 48 megs on-device is plenty; upstream already supports the non-mmap path.
 - **`size_t` is 32-bit on DJGPP.** Audit every `ftell`/`ssize_t` coming from upstream — llama2.c assumes 64-bit on modern hosts.
 - **No `-ffast-math` during Phase 1.** The exit criteria is byte-identical stdout vs. upstream; reassociation breaks that. Re-enable in Phase 3 with a tolerance-based diff.
 - **Stubedit stack.** Always `stubedit vellm.exe minstack=2048k` as a post-link step; default 256 KB is too small.

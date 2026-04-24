@@ -25,7 +25,7 @@ Captured 2026-04-23 on commit `4d1fd7a` (`--benchmark` harness) with
 the Phase 3 final build (`-O2 -fomit-frame-pointer -funroll-loops
 -ffast-math`, int8 KV cache, IDIV→SAR, `--max-seq-len` supported).
 
-| Platform | CPU | Model | Max seq | Prompt tok/s | Gen tok/s | Wall (s) | Peak MB | Notes |
+| Platform | CPU | Model | Max seq | Prompt tok/s | Gen tok/s | Wall (s) | Peak megs | Notes |
 |---|---|---|---:|---:|---:|---:|---:|---|
 | DOSBox-X cycles=90000 | GenuineIntel family 5 model 1 stepping 7 | 15M q80 | default (256) | 1.01 | 0.99 | 201.4 | 18.87 | primary Phase 4 reference |
 | DOSBox-X cycles=90000 | GenuineIntel family 5 model 1 stepping 7 | 15M q80 | 256 (explicit) | 1.01 | 0.99 | 201.4 | 18.87 | `--max-seq-len 256` sanity — no-op for 15M (native seq_len=256) |
@@ -45,26 +45,26 @@ the Phase 3 final build (`-O2 -fomit-frame-pointer -funroll-loops
   has ~2.8× the parameters of 15M and the KV cache is larger; tok/s
   drops by ~2.4× (0.99 → 0.41).
 - **Peak memory: Phase 4 numbers are higher than Phase 3 notes**
-  reported (18.87 vs 17.44 MB for 15M; 46.06 vs 44.69 MB for 42M).
+  reported (18.87 vs 17.44 megs for 15M; 46.06 vs 44.69 megs for 42M).
   Not a regression — different measurement window. Phase 3 captured
   `after-build_transformer` only (arena alone);
   `--benchmark peak mem` captures whole-process high-water (arena +
   activations + stdio buffers + heap fragmentation). Both are
   correct; read them in context.
-- **42M peak = 46.06 MB is very close to the 46.55 MB DPMI
+- **42M peak = 46.06 megs is very close to the 46.55 megs DPMI
   physical ceiling** under DOSBox-X. On real PODP5V83 this
   configuration actually pages — CWSDPMI's real-DOS overhead is
-  ~1.4 MB higher than DOSBox-X models, which pushes 42M
+  ~1.4 megs higher than DOSBox-X models, which pushes 42M
   `--max-seq-len 256` a megabyte or two over the physical
-  ceiling (`mem /c` reports 47 MB free XMS; CWSDPMI claims ~2 MB
-  for page tables etc.; net usable ~45 MB). Observed behavior:
-  `CWSDPMI.SWP` grew to ~10 MB within minutes on the real-HW
+  ceiling (`mem /c` reports 47 megs free XMS; CWSDPMI claims ~2 megs
+  for page tables etc.; net usable ~45 megs). Observed behavior:
+  `CWSDPMI.SWP` grew to ~10 megs within minutes on the real-HW
   attempt before being aborted.
 - **42M real-HW uses `--max-seq-len 128`** to fit the physical
   ceiling. `--benchmark` mode clamps its canonical 200-token
   target to the cap, so the 42M real-HW row reports 128 tokens
   instead of 200. Tok/s stays directly comparable to the 15M
-  row (it's a rate). Peak memory drops to 45.01 MB — right at
+  row (it's a rate). Peak memory drops to 45.01 megs — right at
   the ceiling, but unpaged (`CWSDPMI.SWP` stayed at 0 bytes
   over the full 19m 48s run).
 - **42M / 15M tok/s ratio: 2.45×** on real PODP5V83 (0.27 → 0.11).
@@ -82,8 +82,8 @@ the Phase 3 final build (`-O2 -fomit-frame-pointer -funroll-loops
   model cache misses hitting the 60–66 MHz FSB, FPU dependency-chain
   latency, or pipeline stalls — all of which dominate our
   matmul-heavy hot loop. Memory footprint, on the other hand,
-  matches the DOSBox-X projection to the byte (19.79 MB real vs
-  19.9 MB DOSBox-X peak for 15M) — DPMI allocations don't depend on
+  matches the DOSBox-X projection to the byte (19.79 megs real vs
+  19.9 megs DOSBox-X peak for 15M) — DPMI allocations don't depend on
   CPU simulation fidelity. DOSBox-X cycles≈25000 would approximate
   real-HW wall time; see `docs/hardware.md` §"DOSBox-X vs
   real-hardware calibration".
@@ -96,7 +96,7 @@ Produced by `bench/run.sh` on the host (Linux) driving `dosbox-x`
 via `tools/dosbox-run.sh`. DOSBox-X config:
 
 - `machine = vgaonly`
-- `memsize = 48` (MB)
+- `memsize = 48` (megs)
 - `cputype = pentium` (P54C equivalent — no MMX, FPU present)
 - `core = normal` (deterministic emulation; `dynamic` reorders in
   ways that break byte-exact golden diffs)
@@ -122,7 +122,7 @@ directly. Wall time is measured from the shell via `time`. Host
 numbers establish a "how fast does the algorithm go when compute
 isn't emulated" ceiling; they're not a direct comparison to vellm
 (which applies int8-KV and other memory-vs-speed tradeoffs appropriate
-for 48 MB of real DOS).
+for 48 megs of real DOS).
 
 Reference CPU: Intel Core i7-8700K @ 3.70 GHz, 16 GB RAM, single
 thread (runq.c is single-threaded).
@@ -130,7 +130,7 @@ thread (runq.c is single-threaded).
 ### Real PODP5V83 rows
 
 The 15M row was measured 2026-04-24 on the target PODP5V83
-(Anigma LP4IP1, 48 MB RAM, CF-to-IDE with MS-DOS 6.22, CWSDPMI r7)
+(Anigma LP4IP1, 48 megs RAM, CF-to-IDE with MS-DOS 6.22, CWSDPMI r7)
 using `dist/vellm-cf.tar.gz` / `dist/vellm-cf.zip` (produced by
 `make cf-package`). Operator boots DOS on the PODP5V83, runs
 `BENCH.BAT` (15M) and/or `BENCH42.BAT` (42M, `--max-seq-len 256`),

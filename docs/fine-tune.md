@@ -8,7 +8,7 @@ Produce a model in the 20–40M parameter range, trained on a narrow domain corp
 
 ## Why from scratch (not fine-tune)
 
-The `stories260K`/`stories15M`/`stories42M` checkpoints are trained exclusively on TinyStories — children's fiction at ~3-year-old reading level. They do not encode general knowledge. Fine-tuning them on a DOS corpus produces confused stories about Lily and Timmy debugging `CONFIG.SYS`, not a working help system. Larger general-purpose bases (GPT-2 small, Pythia-70M) are too big to run on 48 MB once we account for KV cache.
+The `stories260K`/`stories15M`/`stories42M` checkpoints are trained exclusively on TinyStories — children's fiction at ~3-year-old reading level. They do not encode general knowledge. Fine-tuning them on a DOS corpus produces confused stories about Lily and Timmy debugging `CONFIG.SYS`, not a working help system. Larger general-purpose bases (GPT-2 small, Pythia-70M) are too big to run on 48 megs once we account for KV cache.
 
 The practical path: **train from scratch** using llama2.c's own training code (`vendor/llama2.c/train.py`), on a domain corpus sized to a 20–40M-parameter model. At this scale, data quality matters vastly more than compute efficiency.
 
@@ -70,7 +70,7 @@ At 30M parameters, data quality dominates. Expect to spend 60–70% of your time
 
 | Source | What it is | Why it matters |
 |---|---|---|
-| **Ralf Brown's Interrupt List (RBIL)** | Canonical DOS/BIOS interrupt reference. ~8 MB structured plain text. | Gold standard technical reference. Dense, accurate. |
+| **Ralf Brown's Interrupt List (RBIL)** | Canonical DOS/BIOS interrupt reference. ~8 megs structured plain text. | Gold standard technical reference. Dense, accurate. |
 | **USENET archives** — `comp.os.msdos.*`, `comp.sys.ibm.pc.*` | Millions of Q&A threads, 1985–2000s. Available on archive.org. | Real questions + real answers = ideal assistant training format. |
 | **FreeDOS documentation** | Man pages, kernel docs, command reference. Pristine text. | Accurate command-line semantics. |
 | **textfiles.com** | Massive archive of BBS-era docs, FAQs, philes, shareware READMEs. | On-aesthetic, surprisingly technical in places. |
@@ -80,8 +80,8 @@ At 30M parameters, data quality dominates. Expect to spend 60–70% of your time
 
 ### Realistic corpus size budget
 
-- **Under 100 MB of cleaned text:** model overfits, repeats training data verbatim.
-- **200–800 MB cleaned text:** sweet spot for a 30M model.
+- **Under 100 megs of cleaned text:** model overfits, repeats training data verbatim.
+- **200–800 megs cleaned text:** sweet spot for a 30M model.
 - **Over 1 GB:** diminishing returns at this scale.
 
 ### Cleanup steps
@@ -157,7 +157,7 @@ Parameter count is roughly `vocab_size * dim + n_layers * (12 * dim^2)` — this
 Why these knobs:
 
 - **`vocab_size=2048`** — matches the tokenizer trained above. A smaller vocab saves parameters and is fine for a narrow domain.
-- **`dim=384–512`** — sets the model's "width." Too small and it can't represent the domain; too big and you can't fit it in 48 MB at int8.
+- **`dim=384–512`** — sets the model's "width." Too small and it can't represent the domain; too big and you can't fit it in 48 megs at int8.
 - **`n_layers=8–10`** — depth matters for multi-step reasoning. More layers cost more inference time on the Pentium.
 - **`max_seq_len=512`** — DOS answers are longer than children's stories. 1024 is fine too; it just bloats the KV cache.
 

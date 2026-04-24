@@ -21,9 +21,9 @@ the project.
 
 Memory on `stories42M_q80` at `memsize=48`:
 
-- **Phase 2 baseline:** 74.50 MB peak, ~30 MB of CWSDPMI swap.
-- **Phase 3 with `--max-seq-len 256 + int8 KV`:** 44.69 MB peak, **no
-  swap**. First configuration where 42M runs unpaged on the 48 MB
+- **Phase 2 baseline:** 74.50 megs peak, ~30 megs of CWSDPMI swap.
+- **Phase 3 with `--max-seq-len 256 + int8 KV`:** 44.69 megs peak, **no
+  swap**. First configuration where 42M runs unpaged on the 48 megs
   target.
 
 ## What worked
@@ -100,7 +100,7 @@ row of the benchmark table is expected to look very different there.
 ### 5. int8 KV cache with per-head fp32 scale (Task #4)
 
 KV cache was the largest single allocation on 42M at default
-`seq_len=1024` — 32 MB, enough by itself to blow past the 46.55 MB
+`seq_len=1024` — 32 megs, enough by itself to blow past the 46.55 megs
 physical ceiling. int8 quantization with a **per-head** scale
 (n_kv_heads floats per (layer, pos)) gives a 3.8× reduction with
 minimal quantization error: each attention inner loop already walks
