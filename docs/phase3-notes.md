@@ -232,6 +232,115 @@ I-cache) and add register pressure that hurts the now-unrolled matmul.
 = **2.11× faster, -52.8% wall time**. Already past the "measurable
 speedup" exit bar for Phase 3 in a single commit.
 
+### Experiment B — IDIV → shift in matmul per-group epilog
+
+**Hypothesis:** the brief calls this experiment "U/V pipe pairing",
+but inspecting the gcc `-O2 -funroll-loops -ffast-math` output for
+`matmul()` shows the pairable-instruction scheduling is already
+reasonable — `-funroll-loops` expanded the GS=32 inner loop into an
+8-wide `movsbl / imull / addl` chain that the P5 pipeline can eat
+mostly in throughput 1. There isn't a lot of U/V hand-tuning slack
+left.
+
+What jumped out on `grep idivl /tmp/matmul.s` instead: **the per-group
+epilog emits two `idivl %esi`** to compute `(in + j) / GS` and `j / GS`
+for the scale lookup:
+
+```
+    val += ((float) ival) * w->s[(in + j) / GS] * x->s[j / GS];
+```
+
+GS is a global (read from the checkpoint header, not a compile-time
+constant), so gcc can't see it's a power of 2 and falls back to a
+signed integer division. On P54C per Agner Fog:
+- `IDIV r32`: **46 cycles, non-pipelined, non-pairable**
+- `IMUL r32, r32`: 10 cycles latency, 1/cycle throughput (pipelined)
+- `SAR r32, r32`: 1 cycle, pairable
+
+Per GS=32 group:
+- 32 IMULs pipelined: ~32 cycles best-case
+- 2 IDIVs non-pipelined: **92 cycles**  ← ~49% of group time
+- overhead: ~32-60 cycles
+
+Replacing the two IDIVs with two SARs should roughly halve matmul
+wall time on real P5 hardware.
+
+**Implementation:** `read_checkpoint()` now validates `GS` is a power
+of 2 and derives `GS_SHIFT = log2(GS)` once at load. `matmul()` uses
+`in >> GS_SHIFT` and `j >> GS_SHIFT` instead of the divisions. Also
+hoisted the `w->s × x->s` product out of the k-loop by one multiply
+level — same number of fp ops total, just cleaner associativity under
+`-ffast-math`. No DOS-PORT annotation: per CLAUDE.md these are only
+for DOS-compatibility deltas, not optimizations.
+
+**Measurement caveat — DOSBox-X does NOT model P5 instruction
+latencies.** `cycles=fixed 90000` is a throttling setting ("emulate N
+host-instructions-worth of work per emulated millisecond"), not a
+cycle-accurate P5 simulator. Its dynamic-translation core charges ~1
+emulated cycle per x86 instruction regardless of whether the real P54C
+would take 1 cycle (SAR) or 46 cycles (IDIV). Consequence: optimizations
+that replace a rare-but-very-slow P5 instruction with a fast one look
+near-null under DOSBox, but pay off massively on real hardware.
+
+**DOSBox numbers (for the record — expected to under-represent):**
+
+| Configuration      | -n 20 wall | -n 200 wall | Gate    |
+|--------------------|-----------:|------------:|:--------|
+| A only             |     23.63s |       2m43s | primary |
+| A + B (this)       |     23.52s |    **2m40.5s** | primary |
+
+DOSBox delta: ~1.5% at n=200, within noise at n=20. Decision to keep
+is based on (a) the optimization is correctness-preserving by
+construction (shift is exact for power-of-2 divisor, which we assert
+at load), (b) real-P54C latency data predicts ~20-40% matmul
+speedup, (c) code complexity is minimal (two additional lines at
+checkpoint load, one hoist in matmul). When we have real PODP5V83
+wall-clock numbers in Phase 5, this row will get a third column.
+
+**Decision:** kept with caveat. Commit: phase3-task3-idiv-shift.
+
+**Why B is not literal U/V pipe pairing:** inspected the unrolled asm
+and concluded the P5 bottleneck is IMUL throughput (1/cycle when
+pipelined) plus the two non-pairable IDIVs, not pairability of
+individual pairable ops. Hand-scheduling the ADD/MOV pairs around
+IMULs has no room to win — gcc has already done the useful part.
+Agner Fog's U/V pairing rules (P5 chapter) are worth keeping in the
+back pocket for the attention-score dot product (fp32, no IMUL), but
+that loop is not currently the hot path.
+
+### Experiment C — blocked / tiled matmul (skipped)
+
+**Considered and rejected** based on algorithmic analysis before
+investing in implementation:
+
+The matmul in question is matrix-**vector** (W[d,n] × x[n] → xout[d]),
+not matrix-matrix. Tiling wins when the inner operand has reuse across
+an outer dimension — classic GEMM keeps an `A` tile hot in L1 while
+the `B` tile streams through. For matvec:
+
+- `x[n]` is reused across all `d` iterations of `i` → it's already
+  in L1 naturally (n=288 for 15M → 288 bytes, trivially hot in the
+  8 KB L1d).
+- `w[d,n]` is streamed: each row `w[i*n .. i*n+n]` is touched once
+  per matmul call and never revisited. No tile-local reuse to capture.
+
+Tiling would just add loop nests with no cache benefit. Quantized
+weights are already fetched sequentially in 32-byte L1 lines, which
+the P5 prefetcher handles well. Skipping with this note rather than
+burning an hour confirming zero speedup.
+
+### Experiment D — fixed-point matmul (skipped)
+
+**Considered and rejected**: `matmul()` already uses int32 accumulation
+for the entire dot product (the `ival` chain). The only fp work per
+group is the final scale multiply (`ival × w->s × x->s`) and one fadd.
+That's ~12,000 fp ops per matmul call for 15M's wq, vs ~83,000 IMULs
+— fp is already <15% of the hot loop. Converting the per-group scale
+to fixed-point would save a fraction of that fraction while adding
+quantization error to the only remaining fp precision in the pipeline.
+Not worth the correctness risk for a likely <5% win.
+
+
 ## Integration measurements
 
 To be filled in during task #5 after tuner's #3/#4 land.
@@ -241,8 +350,9 @@ To be filled in during task #5 after tuner's #3/#4 land.
 | Build                              | Gate    | Peak demand | CWSDPMI.SWP | Wall time (n=200) |
 |------------------------------------|---------|------------:|------------:|------------------:|
 | Post-Phase-2 (b5d72d0)             | primary | 19.89 MB    | 0           | ~5m45s            |
-| Phase 3 + Experiment A (flags)     | primary | 19.89 MB    | 0           | **2m43s**         |
-| Phase 3 + Experiment A + #4 int8 KV | TBD    | TBD         | TBD         | TBD               |
+| Phase 3 + Experiment A (flags)     | primary | 19.89 MB    | 0           | 2m43s             |
+| Phase 3 + Exp A + B (IDIV→shift)   | primary | 19.89 MB    | 0           | **2m40.5s**       |
+| Phase 3 + A + B + #4 int8 KV       | TBD     | TBD         | TBD         | TBD               |
 
 ### stories42M_q80 at memsize=48
 

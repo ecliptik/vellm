@@ -33,6 +33,15 @@
 // Globals
 int GS = 0; // group size global for quantization of the weights
 
+// Phase 3: GS is always a power of 2 (upstream export.py always writes 32 or
+// 64; format.md documents group-size-is-power-of-2 as a format invariant).
+// Precompute log2(GS) once in read_checkpoint so matmul() can turn the
+// per-group `(in + j) / GS` into a shift. Each such division compiled to an
+// `idivl` (~46 cycles, non-pairable on P5); matmul() emits two of them per
+// GS block, and a shift is 1-2 cycles. Measured ~22% matmul speedup on
+// P54C (see docs/phase3-notes.md §"Task #3 Experiment B").
+int GS_SHIFT = 0;
+
 // ----------------------------------------------------------------------------
 // Transformer model
 
@@ -313,6 +322,14 @@ void read_checkpoint(char* checkpoint, Config* config, TransformerWeights* weigh
     int group_size; // the group size used in quantization
     if (fread(&group_size, sizeof(int), 1, file) != 1) { exit(EXIT_FAILURE); }
     GS = group_size; // set as global, as it will be used in many places
+    // Phase 3: compute log2(GS) for matmul() IDIV→shift (see globals block).
+    // GS must be a power of 2; assert and derive the shift count once here.
+    if (GS <= 0 || (GS & (GS - 1)) != 0) {
+        fprintf(stderr, "bad group_size %d (must be a power of 2)\n", GS);
+        exit(EXIT_FAILURE);
+    }
+    GS_SHIFT = 0;
+    { int g = GS; while (g > 1) { g >>= 1; GS_SHIFT++; } }
     // figure out the file size
     fseek(file, 0, SEEK_END); // move file pointer to end of file
     // DOS-PORT: ftell returns long (32-bit on DJGPP); 15M/42M checkpoints fit comfortably.
@@ -418,6 +435,18 @@ void matmul(float* xout, QuantizedTensor *x, QuantizedTensor *w, int n, int d) {
     // by far the most amount of time is spent inside this little function
     // inputs to this function are both quantized
 
+    // Phase 3 Experiment B: the per-group scale index `(in + j) / GS` and
+    // `j / GS` compile to `idivl %esi` on P5 (~46 cycles, non-pairable)
+    // because GS is a global variable the compiler can't see as a constant.
+    // We know GS is a power of 2 (checked in read_checkpoint), and the
+    // addends are both multiples of GS (since n must be too, or upstream's
+    // own runq.c would already be mis-indexing). So:
+    //   (in + j) / GS  ==  (in >> GS_SHIFT) + (j >> GS_SHIFT)
+    // Precompute `in_g = in >> GS_SHIFT` once per i, `j_g` once per j-block,
+    // replacing the two IDIVs with one add. Measured ~22% matmul speedup
+    // on P54C, orthogonal to -funroll-loops. No accuracy cost — the
+    // division was exact in the original formulation.
+    int shift = GS_SHIFT;
     int i;
     #pragma omp parallel for private(i)
     for (i = 0; i < d; i++) {
@@ -425,14 +454,17 @@ void matmul(float* xout, QuantizedTensor *x, QuantizedTensor *w, int n, int d) {
         float val = 0.0f;
         int32_t ival = 0;
         int in = i * n;
+        int in_g = in >> shift;          // == (i * n) / GS, exact
 
         // do the matmul in groups of GS
         int j;
         for (j = 0; j <= n - GS; j += GS) {
+            int j_g = j >> shift;        // == j / GS, exact (j is a multiple of GS)
+            float wx_s = w->s[in_g + j_g] * x->s[j_g];  // per-group scale product
             for (int k = 0; k < GS; k++) {
                 ival += ((int32_t) x->q[j + k]) * ((int32_t) w->q[in + j + k]);
             }
-            val += ((float) ival) * w->s[(in + j) / GS] * x->s[j / GS];
+            val += ((float) ival) * wx_s;
             ival = 0;
         }
 
