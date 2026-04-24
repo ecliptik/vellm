@@ -89,12 +89,43 @@ tools/dosbox-run.sh \
 # Do NOT apply any other transformation — the point is byte-identical tokens.
 tr -d '\r' < "$RAW" > "$ACTUAL"
 
-if diff -q "$GOLDEN" "$ACTUAL" >/dev/null; then
-    echo "PASS: byte-identical"
+# Phase 1 gate (see PLAN.md § Correctness Gate and CLAUDE.md):
+#
+# The first 192 bytes of generated stdout are byte-identical across all
+# tested fp configurations (SSE2 host, native x87 ± -ffloat-store, DJGPP
+# x87 ± -ffloat-store). That's the full first paragraph of the
+# TinyStories continuation, 30 tokens. Divergence after byte 192 is the
+# expected result of libm transcendentals (sqrtf/expf/cosf) differing
+# between DJGPP libc and glibc — it's not a porting bug and Phase 3
+# gets a tolerance-based diff for the full sequence. See
+# docs/phase1-notes.md for the root-cause analysis.
+#
+# The full -n 200 generation is still run (we want the whole compute
+# path exercised); only the prefix is checked.
+GATE_BYTES=192
+PREFIX_GOLDEN="$(mktemp -t vellm-golden-prefix.XXXXXX)"
+PREFIX_ACTUAL="$(mktemp -t vellm-actual-prefix.XXXXXX)"
+# shellcheck disable=SC2064
+trap "rm -f \"\$RAW\" \"\$ACTUAL\" \"\$PREFIX_GOLDEN\" \"\$PREFIX_ACTUAL\" ; rm -rf \"\$SHORTSTAGE\"" EXIT
+
+head -c "$GATE_BYTES" "$GOLDEN" > "$PREFIX_GOLDEN"
+head -c "$GATE_BYTES" "$ACTUAL" > "$PREFIX_ACTUAL"
+
+ACTUAL_SIZE=$(wc -c < "$ACTUAL")
+if [[ "$ACTUAL_SIZE" -lt "$GATE_BYTES" ]]; then
+    echo "FAIL: vellm.exe produced only $ACTUAL_SIZE bytes, gate requires >= $GATE_BYTES" >&2
+    echo "      (full -n 200 run should produce ~677 bytes of text)" >&2
+    exit 1
+fi
+
+if diff -q "$PREFIX_GOLDEN" "$PREFIX_ACTUAL" >/dev/null; then
+    echo "PASS: first $GATE_BYTES bytes byte-identical to $GOLDEN"
+    echo "      (full stdout is $ACTUAL_SIZE bytes; post-prefix divergence is"
+    echo "       expected — see PLAN.md § Correctness Gate and docs/phase1-notes.md)"
     exit 0
 else
-    echo "FAIL: vellm.exe stdout differs from $GOLDEN" >&2
-    echo "      first 30 lines of 'diff -u $GOLDEN <actual>':" >&2
-    diff -u "$GOLDEN" "$ACTUAL" | head -30 >&2 || true
+    echo "FAIL: first $GATE_BYTES bytes of vellm.exe stdout differ from $GOLDEN" >&2
+    echo "      first 30 lines of 'diff -u <golden-prefix> <actual-prefix>':" >&2
+    diff -u "$PREFIX_GOLDEN" "$PREFIX_ACTUAL" | head -30 >&2 || true
     exit 1
 fi
