@@ -96,13 +96,13 @@ VELLM.EXE STORY42.BIN -z TOKEN.BIN -L 128 -t 0.8 -i "The floppy drive"
 
 Canonical 200-token run, seed 42, temp 0. Full matrix in [`bench/results.md`](./bench/results.md).
 
-| Platform | Model | Tokens | Gen&nbsp;tok/s | Wall | Peak&nbsp;megs |
+| Platform | Model | Tokens | tok/s | Wall | Peak&nbsp;megs |
 |---|---|---:|---:|---:|---:|
-| **Real PODP5V83 (83 MHz)** | [15M q80](https://huggingface.co/karpathy/tinyllamas) | 200 | **0.27** | **11m 56s** | 19.8 |
-| **Real PODP5V83 (83 MHz)** | [42M q80](https://huggingface.co/karpathy/tinyllamas), `-L 128` | 128 | **0.11** | **19m 48s** | **45.0** |
-| DOSBox-X (cycles=fixed 90000) | [15M q80](https://huggingface.co/karpathy/tinyllamas) | 200 | 0.99 | 2m 59s | 19.9 |
-| DOSBox-X (cycles=fixed 90000) | [42M q80](https://huggingface.co/karpathy/tinyllamas), `-L 256` | 200 | 0.41 | 8m 11s | 46.1 |
-| Host Linux (i7-8700K, upstream runq.c) | [15M q80](https://huggingface.co/karpathy/tinyllamas) | 200 | ~96 | ~2.1s | — |
+| **Real PODP5V83** | [15M q80](https://huggingface.co/karpathy/tinyllamas) | 200 | **0.27** | **11m 56s** | 19.8 |
+| **Real PODP5V83** | [42M q80](https://huggingface.co/karpathy/tinyllamas), `-L 128` | 128 | **0.11** | **19m 48s** | **45.0** |
+| DOSBox-X | [15M q80](https://huggingface.co/karpathy/tinyllamas) | 200 | 0.99 | 2m 59s | 19.9 |
+| DOSBox-X | [42M q80](https://huggingface.co/karpathy/tinyllamas), `-L 256` | 200 | 0.41 | 8m 11s | 46.1 |
+| Host Linux (runq.c) | [15M q80](https://huggingface.co/karpathy/tinyllamas) | 200 | ~96 | ~2.1s | — |
 
 42M uses `--max-seq-len 128` on real hardware to stay under CWSDPMI's ~45 megs ceiling on a 48 megs box; `--benchmark` clamps the 200-token target to the cap. [`docs/hardware.md`](./docs/hardware.md) documents the DOSBox-X calibration — `cycles=fixed 90000` runs ~3.6× faster than the Pentium for this workload.
 
