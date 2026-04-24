@@ -19,7 +19,7 @@ Tested configuration:
 - **Video:** ATI Mach64 215CT PCI (VGA text mode used; no graphics needed)
 - **DPMI:** CWSDPMI r7
 
-**Minimum plausible hardware:** Intel 486DX or later x86 with a hardware FPU, ≥24 megs RAM for 15M (≥48 megs for 42M), MS-DOS 6.22 + HIMEM.SYS. DJGPP targets i386+, but the x87 code path needs a real FPU (486SX without a coprocessor won't work). 486DX2/66 is a plausible benchmark-comparison target; untested but should run.
+**Minimum plausible hardware:** Intel 486DX or later x86 with a hardware FPU, ≥24 megs of RAM for 15M (≥48 megs for 42M), MS-DOS 6.22 + HIMEM.SYS. DJGPP targets i386+, but the x87 code path needs a real FPU (486SX without a coprocessor won't work). 486DX2/66 is a plausible benchmark-comparison target; untested but should run.
 
 ## Toolchain
 

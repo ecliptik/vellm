@@ -3,7 +3,7 @@
 The primary target is documented in `CLAUDE.md`:
 
 - Intel Pentium Overdrive PODP5V83 (83 MHz, Socket 3, P54C, no MMX)
-- 48 megs RAM
+- 48 megs of RAM
 - Anigma LP4IP1 motherboard
 - CF-to-IDE (2 GB MS-DOS 6.22 + WfW 3.11; 4 GB Win95 OSR2.5)
 - ATI Mach64 215CT PCI (VGA text mode only)

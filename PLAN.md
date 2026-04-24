@@ -82,7 +82,7 @@ Goal: make it robust on 48 megs of real DOS, not just technically-working. Origi
 
 Train a ~30M-parameter model from scratch on a narrow domain corpus (starting with DOS / vintage computing knowledge) so `vellm.exe` answers period-appropriate questions, not just generates children's stories. Ship as v0.2.
 
-1. **Data collection** — Ralf Brown's Interrupt List, USENET `comp.os.msdos.*` archives, FreeDOS docs, textfiles.com, period books in text form. Cleanup + dedupe. Target 200–800 megs cleaned text.
+1. **Data collection** — Ralf Brown's Interrupt List, USENET `comp.os.msdos.*` archives, FreeDOS docs, textfiles.com, period books in text form. Cleanup + dedupe. Target 200–800 megs of cleaned text.
 2. **Format as Q&A pairs** — structure training data with `<|user|>` / `<|assistant|>` delimiters. USENET threads map naturally; synthesize pairs from reference material programmatically.
 3. **Train a custom BPE tokenizer** — SentencePiece, vocab 2048–4096, domain tokens (`HIMEM.SYS`, `INT 21H`, etc.) become single tokens.
 4. **Train the model** — `vendor/llama2.c/train.py`. Pilot run on the host i7-8700K (few hundred K tokens) to validate pipeline, then full training run on a rented GPU (RTX 4090 or A100 — a few hours, $5–20 per attempt on Vast.ai/RunPod).

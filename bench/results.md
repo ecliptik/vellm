@@ -130,7 +130,7 @@ thread (runq.c is single-threaded).
 ### Real PODP5V83 rows
 
 The 15M row was measured 2026-04-24 on the target PODP5V83
-(Anigma LP4IP1, 48 megs RAM, CF-to-IDE with MS-DOS 6.22, CWSDPMI r7)
+(Anigma LP4IP1, 48 megs of RAM, CF-to-IDE with MS-DOS 6.22, CWSDPMI r7)
 using `dist/vellm-cf.tar.gz` / `dist/vellm-cf.zip` (produced by
 `make cf-package`). Operator boots DOS on the PODP5V83, runs
 `BENCH.BAT` (15M) and/or `BENCH42.BAT` (42M, `--max-seq-len 256`),

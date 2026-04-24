@@ -70,7 +70,7 @@ At 30M parameters, data quality dominates. Expect to spend 60–70% of your time
 
 | Source | What it is | Why it matters |
 |---|---|---|
-| **Ralf Brown's Interrupt List (RBIL)** | Canonical DOS/BIOS interrupt reference. ~8 megs structured plain text. | Gold standard technical reference. Dense, accurate. |
+| **Ralf Brown's Interrupt List (RBIL)** | Canonical DOS/BIOS interrupt reference. ~8 megs of structured plain text. | Gold standard technical reference. Dense, accurate. |
 | **USENET archives** — `comp.os.msdos.*`, `comp.sys.ibm.pc.*` | Millions of Q&A threads, 1985–2000s. Available on archive.org. | Real questions + real answers = ideal assistant training format. |
 | **FreeDOS documentation** | Man pages, kernel docs, command reference. Pristine text. | Accurate command-line semantics. |
 | **textfiles.com** | Massive archive of BBS-era docs, FAQs, philes, shareware READMEs. | On-aesthetic, surprisingly technical in places. |
@@ -81,7 +81,7 @@ At 30M parameters, data quality dominates. Expect to spend 60–70% of your time
 ### Realistic corpus size budget
 
 - **Under 100 megs of cleaned text:** model overfits, repeats training data verbatim.
-- **200–800 megs cleaned text:** sweet spot for a 30M model.
+- **200–800 megs of cleaned text:** sweet spot for a 30M model.
 - **Over 1 GB:** diminishing returns at this scale.
 
 ### Cleanup steps
