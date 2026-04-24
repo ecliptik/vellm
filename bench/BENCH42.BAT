@@ -22,6 +22,6 @@ REM ============================================================
 SET DPMI=CWSDPMI.EXE
 ECHO.
 ECHO Running vellm benchmark (stories42M_q80, seq=128, 128 tokens)...
-ECHO This takes ~18 minutes on a Pentium/83 (no-swap estimate).
+ECHO This takes ~20 minutes on a Pentium/83 (measured, 0.11 tok/s).
 ECHO.
 VELLM.EXE STORY42.BIN -z TOKEN.BIN --benchmark --max-seq-len 128

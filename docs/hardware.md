@@ -33,15 +33,24 @@ First real-hardware run landed 2026-04-24 on commit
 
 ### Benchmark results on real hardware
 
-| Model | Max seq | Prompt tok/s | Gen tok/s | Wall | Peak MB |
-|---|---:|---:|---:|---:|---:|
-| `stories15M_q80` | default (256) | 0.28 | 0.27 | 11m 56s (715.6 s) | 19.79 |
-| `stories42M_q80 --max-seq-len 256` | 256 | _pending_ | _pending_ | _pending_ | _pending_ |
+| Model | Max seq | Tokens | Prompt tok/s | Gen tok/s | Wall | Peak MB |
+|---|---:|---:|---:|---:|---:|---:|
+| `stories15M_q80` | default (256) | 200 | 0.28 | 0.27 | 11m 56s (715.6 s) | 19.79 |
+| `stories42M_q80 --max-seq-len 128` | 128 | 128 | 0.08 | 0.11 | 19m 48s (1187.7 s) | **45.01** |
 
-The 42M row is pending — the operator's `BENCH42.BAT` run is still
-in flight at the time of writing. Peak memory is expected near
-45 MB from the DOSBox-X projection; the real-HW number lands when
-the run completes.
+42M on real hardware uses `--max-seq-len 128` rather than the DOSBox-X
+`256` configuration: real-DOS CWSDPMI has ~1.4 MB more overhead than
+DOSBox-X models, which pushed `--max-seq-len 256` about 1–2 MB over
+the physical ceiling and produced visible paging. `-L 128` saves
+~1 MB of KV cache and lands at 45.0 MB peak — right at the ceiling
+but unpaged. `--benchmark` mode clamps its canonical 200-token target
+to the cap, so the 42M row reports 128 tokens; tok/s stays directly
+comparable to the 15M row.
+
+On a clean 48 MB DOS 6.22 config (HIMEM only, no EMM386/SMARTDRV/
+MSCDEX), `mem /c` reports 47 MB of free XMS. CWSDPMI claims ~2 MB
+for its own structures, leaving ~45 MB usable for DPMI clients —
+exactly where 42M's peak lands.
 
 ## DOSBox-X vs real-hardware calibration
 
@@ -99,8 +108,9 @@ cycles = fixed 90000` with CWSDPMI r7 to match the target PODP5V83.
 | Model + flags                              | Disk     | Config (dim/hidden/layers/vocab/seq) | DOSBox-X peak  | Real PODP5V83 peak | Swap peak | Fit at memsize=48     | DOSBox-X wall (n=200) |
 |---------------------------------------------|---------:|---------------------------------------|---------------:|-------------------:|----------:|-----------------------|---------------------:|
 | `stories15M_q80`                            | 16.31 MB | 288 / 768 / 6 / 32000 / 256           | **17.44 MB**   | **19.79 MB**       | 0         | **fits, no swap**     | **2m59s**            |
-| `stories42M_q80` (default)                  | 42.27 MB | 512 / 1376 / 8 / 32000 / 1024         | 51.06 MB       | _pending_          | ~4.5 MB   | fits, paging          | —                    |
-| `stories42M_q80 --max-seq-len 256`          | 42.27 MB | 512 / 1376 / 8 / 32000 / **256 (cap)** | **44.69 MB**   | _pending_          | **0**     | **fits, no swap**     | —                    |
+| `stories42M_q80` (default)                  | 42.27 MB | 512 / 1376 / 8 / 32000 / 1024         | 51.06 MB       | _doesn't fit_      | ~4.5 MB   | fits, paging          | —                    |
+| `stories42M_q80 --max-seq-len 256`          | 42.27 MB | 512 / 1376 / 8 / 32000 / **256 (cap)** | **44.69 MB**   | **pages (~10 MB)** | **0** (DOSBox-X) / ~10 MB (real HW) | DOSBox-X: no swap / real HW: pages | —                    |
+| `stories42M_q80 --max-seq-len 128`          | 42.27 MB | 512 / 1376 / 8 / 32000 / **128 (cap)** | ~43.6 MB (proj) | **45.01 MB**       | **0**     | **fits, no swap**     | —                    |
 
 Physical ceiling at `memsize=48`: **46.55 MB**. The headline is the last
 row — `stories42M_q80 + --max-seq-len 256 + int8 KV` is the first

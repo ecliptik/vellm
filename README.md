@@ -5,7 +5,7 @@ Intel Pentium OverDrive under MS-DOS 6.22 — emitting coherent
 TinyStories-domain text at 0.27 tokens per second on a 1995-era
 machine, with 48 MB of RAM and no SIMD.**
 
-![vellm running stories42M_q80 on a real Intel Pentium Overdrive 83 MHz under MS-DOS 6.22 — the open case shows the motherboard; the monitor shows the live benchmark with an accurate CPU/MHz/RAM banner](docs/vellm-real-hw.jpeg)
+<a href="docs/vellm-real-hw.jpeg"><img src="docs/vellm-real-hw.jpeg" width="540" alt="vellm running stories42M_q80 on a real Intel Pentium Overdrive 83 MHz under MS-DOS 6.22 — the open case shows the motherboard; the monitor shows the live benchmark with an accurate CPU/MHz/RAM banner"></a>
 
 *Pentium OverDrive PODP5V83 (1995), MS-DOS 6.22, 48 MB RAM, BIOS 01/03/95, running `BENCH42.BAT` at `--max-seq-len 128`.*
 
@@ -24,14 +24,18 @@ hardware.
 Canonical 200-token run, `stories15M_q80.bin`, seed 42, temp 0.
 Full matrix in [`bench/results.md`](./bench/results.md).
 
-| Platform | Model | Gen tok/s | Wall | Peak MB |
-|---|---|---:|---:|---:|
-| **Real PODP5V83 (83 MHz)** | 15M q80 | **0.27** | **11m 56s** | 19.8 |
-| DOSBox-X (cycles=fixed 90000) | 15M q80 | 0.99 | 2m 59s | 19.9 |
-| DOSBox-X (cycles=fixed 90000) | 42M q80, `--max-seq-len 256` | 0.41 | 8m 11s | 46.1 |
-| Host Linux (i7-8700K, upstream runq.c) | 15M q80 | ~96 | ~2.1s | — |
+| Platform | Model | Tokens | Gen tok/s | Wall | Peak MB |
+|---|---|---:|---:|---:|---:|
+| **Real PODP5V83 (83 MHz)** | 15M q80 | 200 | **0.27** | **11m 56s** | 19.8 |
+| **Real PODP5V83 (83 MHz)** | 42M q80, `-L 128` | 128 | **0.11** | **19m 48s** | **45.0** |
+| DOSBox-X (cycles=fixed 90000) | 15M q80 | 200 | 0.99 | 2m 59s | 19.9 |
+| DOSBox-X (cycles=fixed 90000) | 42M q80, `-L 256` | 200 | 0.41 | 8m 11s | 46.1 |
+| Host Linux (i7-8700K, upstream runq.c) | 15M q80 | 200 | ~96 | ~2.1s | — |
 
-Real PODP5V83 42M numbers are pending measurement.
+42M on real hardware uses `--max-seq-len 128` to stay under CWSDPMI's
+physical ceiling (~45 MB usable after DPMI overhead on a 48 MB box);
+`--benchmark` clamps the canonical 200-token target to the cap, so the
+run emits 128 tokens instead. Tok/s is directly comparable regardless.
 
 ## What this is
 
@@ -133,9 +137,9 @@ time, the 42M model and its benchmark are included.
 
 ## Status
 
-Phases 0–5 complete; v0.1 ships with 15M confirmed on real
-hardware. 42M real-hardware numbers pending; see
-[`PLAN.md`](./PLAN.md) for the roadmap.
+Phases 0–5 complete. v0.1 ships with both 15M and 42M confirmed
+on real Intel Pentium Overdrive hardware. See [`PLAN.md`](./PLAN.md)
+for the roadmap and post-v0.1 stretch work.
 
 ## Layout
 

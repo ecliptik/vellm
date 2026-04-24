@@ -32,8 +32,8 @@ the Phase 3 final build (`-O2 -fomit-frame-pointer -funroll-loops
 | DOSBox-X cycles=90000 | GenuineIntel family 5 model 1 stepping 7 | 42M q80 | 256 | 0.42 | 0.41 | 491.3 | 46.06 | 42M at `--max-seq-len 256`, near-ceiling |
 | Host Linux (native) | Intel i7-8700K @ 3.70 GHz | 15M q80 | default (256) | n/a | ~96 | ~2.1 | n/a | sanity ceiling — upstream runq.c |
 | Host Linux (native) | Intel i7-8700K @ 3.70 GHz | 42M q80 | default (1024) | n/a | ~44 | ~4.0 | n/a | sanity ceiling — upstream runq.c |
-| Real PODP5V83 | Pentium OverDrive 83 MHz (P54C, family 5 model 3 stepping 2) | 15M q80 | default (256) | 0.28 | 0.27 | 715.6 | 19.79 | **measured 2026-04-24 on real hardware** |
-| Real PODP5V83 | Pentium OverDrive 83 MHz (P54C, family 5 model 3 stepping 2) | 42M q80 | 256 | _TBD_ | _TBD_ | _TBD_ | _TBD_ | **pending measurement** |
+| Real PODP5V83 | Pentium OverDrive 83 MHz (P54C, family 5 model 3 stepping 2) | 15M q80 | default (256) | 0.28 | 0.27 | 715.6 | 19.79 | measured 2026-04-24 on real hardware; 200 tokens |
+| Real PODP5V83 | Pentium OverDrive 83 MHz (P54C, family 5 model 3 stepping 2) | 42M q80 | **128** | 0.08 | 0.11 | 1187.7 | 45.01 | measured 2026-04-24 on real hardware; 128 tokens (`-L 128` — see observations below) |
 
 ## Observations
 
@@ -52,12 +52,26 @@ the Phase 3 final build (`-O2 -fomit-frame-pointer -funroll-loops
   activations + stdio buffers + heap fragmentation). Both are
   correct; read them in context.
 - **42M peak = 46.06 MB is very close to the 46.55 MB DPMI
-  physical ceiling.** The docs/phase3-notes.md §"Integration
-  measurements" claim of "0 swap" was measured on the arena; real
-  total demand is 0.5 MB under the ceiling. 42M + `--max-seq-len 256`
-  still fits with negligible margin, but "no margin" is closer to
-  the truth than "2 MB headroom". Real PODP5V83 numbers will
-  confirm whether CWSDPMI.SWP grows at all.
+  physical ceiling** under DOSBox-X. On real PODP5V83 this
+  configuration actually pages — CWSDPMI's real-DOS overhead is
+  ~1.4 MB higher than DOSBox-X models, which pushes 42M
+  `--max-seq-len 256` a megabyte or two over the physical
+  ceiling (`mem /c` reports 47 MB free XMS; CWSDPMI claims ~2 MB
+  for page tables etc.; net usable ~45 MB). Observed behavior:
+  `CWSDPMI.SWP` grew to ~10 MB within minutes on the real-HW
+  attempt before being aborted.
+- **42M real-HW uses `--max-seq-len 128`** to fit the physical
+  ceiling. `--benchmark` mode clamps its canonical 200-token
+  target to the cap, so the 42M real-HW row reports 128 tokens
+  instead of 200. Tok/s stays directly comparable to the 15M
+  row (it's a rate). Peak memory drops to 45.01 MB — right at
+  the ceiling, but unpaged (`CWSDPMI.SWP` stayed at 0 bytes
+  over the full 19m 48s run).
+- **42M / 15M tok/s ratio: 2.45×** on real PODP5V83 (0.27 → 0.11).
+  Expected ~2.8× from parameter-count scaling; the small gap is
+  within measurement noise and aligns with the DOSBox-X ratio
+  (2.4×). Confirms no unexpected real-HW penalty beyond the
+  per-token matmul work.
 - **CPUID brand mismatch is intentional.** DOSBox-X's emulated
   Pentium reports `family 5 model 1`, while a real PODP5V83 reports
   `family 5 model 3`. Use this as a cheap "is this a real-hardware
