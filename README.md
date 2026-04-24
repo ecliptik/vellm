@@ -45,8 +45,6 @@ This project was 100% built agentically using [Claude Code](https://docs.anthrop
 
 ## Usage
 
-After [deploying to DOS](#deployment), at a `C:\VELLM>` prompt:
-
 **Canonical demo**
 ```
 C:\VELLM>RUN.BAT
