@@ -18,7 +18,7 @@
 #
 #   15m-default    stories15M_q80.bin   (upstream default)
 #   15m-seq256     stories15M_q80.bin   --max-seq-len 256
-#   42m-seq128     stories42M_q80.bin   --max-seq-len 128
+#   42m-seq200     stories42M_q80.bin   --max-seq-len 200
 #
 # The 42M scenario is skipped (with a clear note) when
 # models/stories42M_q80.bin is not present.
@@ -53,7 +53,7 @@ usage() {
 Usage: bench/run.sh [options]
 
   --scenario NAME    Run just this scenario (one of: 15m-default, 15m-seq256,
-                     42m-seq128). Default: run all available scenarios.
+                     42m-seq200). Default: run all available scenarios.
   --output PATH      Append/write rows to PATH. Format inferred from suffix
                      (.md / .csv / .tsv). Default: write to stdout as markdown.
   --append           With --output: append rows; do not overwrite the file.
@@ -111,7 +111,7 @@ fi
 SCENARIOS=(
   "15m-default|models/stories15M_q80.bin|"
   "15m-seq256|models/stories15M_q80.bin|--max-seq-len 256"
-  "42m-seq128|models/stories42M_q80.bin|--max-seq-len 128"
+  "42m-seq200|models/stories42M_q80.bin|--max-seq-len 200"
 )
 
 # --- Benchmark block parser --------------------------------------------------
