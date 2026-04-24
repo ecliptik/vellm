@@ -271,9 +271,13 @@ void memory_map_weights(TransformerWeights *w, Config* p, void* ptr, uint8_t sha
     // now read all the quantized weights
     ptr = (void*)fptr; // now cast the pointer back to void*
     w->q_tokens = init_quantized_tensors(&ptr, 1, p->vocab_size * p->dim);
-    // dequantize token embedding table
-    w->token_embedding_table = malloc(p->vocab_size * p->dim * sizeof(float));
-    dequantize(w->q_tokens, w->token_embedding_table, p->vocab_size * p->dim);
+    // DOS-PORT: skip upstream's full vocab_size × dim fp32 dequant of the token
+    // DOS-PORT: embedding table — that table is 35.16 MB on stories15M and is what
+    // DOS-PORT: drives CWSDPMI.SWP growth on the 48 MB target (see docs/phase2-memory.md).
+    // DOS-PORT: Instead we dequantize one row on demand at lookup in forward(),
+    // DOS-PORT: keeping only the Q8_0 form (~8.25 MB) resident. Numerically
+    // DOS-PORT: identical: same qx->q[i] * qx->s[i/GS] formula, just lazy.
+    w->token_embedding_table = NULL;
 
     w->wq = init_quantized_tensors(&ptr, p->n_layers, p->dim * (p->n_heads * head_size));
     w->wk = init_quantized_tensors(&ptr, p->n_layers, p->dim * (p->n_kv_heads * head_size));
@@ -439,8 +443,17 @@ float* forward(Transformer* transformer, int token, int pos) {
     int hidden_dim =  p->hidden_dim;
     int head_size = dim / p->n_heads;
 
-    // copy the token embedding into x
-    memcpy(x, w->token_embedding_table + token*dim, dim * sizeof(float));
+    // DOS-PORT: on-the-fly row dequant — upstream memcpy's from a pre-dequantized
+    // DOS-PORT: fp32 table (35 MB on stories15M). See memory_map_weights(). The
+    // DOS-PORT: arithmetic below matches upstream's dequantize() byte-for-byte
+    // DOS-PORT: (same q[i] * s[i/GS] form), just computed per-row instead of once
+    // DOS-PORT: at load. Cost: ~dim multiplies per token, negligible vs. matmul.
+    {
+        int row = token * dim;
+        for (int j = 0; j < dim; j++) {
+            x[j] = (float)w->q_tokens->q[row + j] * w->q_tokens->s[(row + j) / GS];
+        }
+    }
 
     // forward all the layers
     for(int l = 0; l < p->n_layers; l++) {
