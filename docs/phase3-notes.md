@@ -145,17 +145,104 @@ No change to caller contract. `tests/run-golden.sh` exits 0 on pass
 "PASS (primary)" from "PASS (tolerance)" so log scrapers can
 distinguish the cases without parsing.
 
+## Task #3 — Matmul speed optimization
+
+Tuner's lane. Structured as experiments A/B/C/D (compiler flags →
+U/V pipe pairing → blocked tiling → fixed-point matmul); each is an
+atomic keep-or-discard decision logged here.
+
+Canonical benchmark throughout: `tests/run-golden.sh` = `stories15M_q80
+-t 0 -s 42 -n 200 -i "Once upon a time"` under DOSBox-X memsize=48,
+cycles=fixed 90000. Iteration uses `-n 20` for sub-minute signal;
+final keeper numbers are `-n 200`. Phase 2 baseline is 5m45s (commit
+b5d72d0, `-O2 -fomit-frame-pointer -ffloat-store`).
+
+### Experiment A — aggressive compiler flags
+
+**Hypothesis:** the matmul hot loop (`src/vellm.c` `matmul()`,
+specifically the Q8_0 inner `for (k=0; k<GS; k++)` integer-MAC chain
+at lines 421-427) is a tight fixed-iteration loop — exactly what
+`-funroll-loops` exists for. `-ffast-math` and `-O3` are additional
+free-money levers if they pass gate.
+
+**Flag sweep at `-n 20` (wall time in seconds):**
+
+| Flags added                                                | Wall  | Speedup | Gate (n=20)  |
+|------------------------------------------------------------|------:|--------:|:-------------|
+| (baseline: -O2 -ffloat-store)                              | 36.80 |      —  | BYTE_ID       |
+| -O3                                                        | 36.86 |  +0.2%  | BYTE_ID       |
+| -funroll-loops                                             | 25.19 | -31.5%  | BYTE_ID       |
+| -fschedule-insns -fschedule-insns2                         | 36.83 |   0.0%  | BYTE_ID       |
+| -O3 -funroll-loops                                         | 25.11 | -31.8%  | BYTE_ID       |
+| -O3 -fschedule-insns -fschedule-insns2                     | 36.93 |  +0.4%  | BYTE_ID       |
+| -O3 -funroll-loops -fschedule-insns -fschedule-insns2      | 33.01 | -10.3%  | BYTE_ID       |
+| -ffast-math                                                | 36.55 |  -0.7%  | BYTE_ID       |
+| -funroll-loops -ffast-math                                 | 24.78 | -32.7%  | BYTE_ID       |
+| -O3 -funroll-loops -ffast-math                             | 25.02 | -32.0%  | BYTE_ID       |
+
+Reading:
+- **`-funroll-loops` is the whole story.** Alone it lops 32% off wall.
+- `-O3` adds nothing measurable on this workload and slightly regresses
+  when `-fschedule-insns{,2}` pull in with it. Kept at `-O2`.
+- `-fschedule-insns/2` is neutral or harmful (the gcc Pentium scheduler
+  seems to already do most of the useful reordering at -O2; explicit
+  scheduling here fights unrolling's register pressure).
+- `-ffast-math` on top of unroll adds ~1.6% more at n=20. Small win on
+  its own but it unlocks the big follow-up: dropping `-ffloat-store`.
+
+**Final `-n 200` gate validation (the numbers that ship):**
+
+| Configuration                                  | Wall    | Speedup | Gate           |
+|------------------------------------------------|--------:|--------:|:---------------|
+| Baseline (-O2 -ffloat-store)                   | 5m45s   |    —    | primary        |
+| -funroll-loops                                 | 3m55s   | -31.9%  | primary        |
+| -funroll-loops -ffast-math                     | 3m49s   | -33.6%  | primary        |
+| -funroll-loops -ffast-math, drop -ffloat-store | **2m43s** | **-52.8%** (**2.11×**) | primary |
+| -O3 -funroll-loops -ffast-math, drop -ffloat-store | 3m15s | -43.2% | primary        |
+
+**Kept:** `-O2 -fomit-frame-pointer -funroll-loops -ffast-math -Wall
+-Isrc` — no `-ffloat-store`, no `-O3`.
+
+**Why dropping `-ffloat-store` is the dominant win:** `-ffloat-store`
+forces x87 to spill every fp intermediate to a 4-byte memory slot and
+reload it on every use, which reinstates strict IEEE-754 32-bit
+rounding but costs two memory ops per fp instruction. On the P5's
+short pipeline this is enormous — the FPU is blocked on the load/store
+AGU every op instead of chaining. Removing it means x87 keeps 80-bit
+extended precision in st(0)-st(7) registers, chains freely, and finishes
+the matmul accumulation ~45% faster than the strict-rounded variant.
+
+Phase 1 added `-ffloat-store` to guarantee byte-identity with the
+SSE2-generated golden. Empirically: the 192-byte correctness
+fingerprint survives the extended-precision pipeline as well — divergence
+still happens somewhere past byte 192 (see phase1-notes.md §"FP
+precision mismatch"), but the first 30 tokens stay on the same
+cross-toolchain manifold. The gate still passes PRIMARY at n=200, which
+is as strong as Phase 1's result.
+
+**Why -O3 regresses vs -O2 here:** -O3 enables `-ftree-loop-vectorize`
+and `-fpredictive-commoning`, neither of which help on a Pentium
+without SSE. They enlarge the code footprint (the P5 has only 8 KB
+I-cache) and add register pressure that hurts the now-unrolled matmul.
+`-O2 -funroll-loops` is the sweet spot for P54C.
+
+**Decision:** kept. Commit: phase3-task3-flags.
+
+**Speedup vs Phase 2 baseline after Experiment A:** 5m45s → 2m43s
+= **2.11× faster, -52.8% wall time**. Already past the "measurable
+speedup" exit bar for Phase 3 in a single commit.
+
 ## Integration measurements
 
 To be filled in during task #5 after tuner's #3/#4 land.
 
 ### stories15M_q80 at memsize=48
 
-| Build                | Gate   | Peak demand | CWSDPMI.SWP | Wall time (n=200) |
-|----------------------|--------|------------:|------------:|------------------:|
-| Post-Phase-2 (b5d72d0) | primary | 19.89 MB  | 0           | ~5m45s            |
-| Phase 3 (tuner #3)     | TBD    | TBD        | TBD         | TBD               |
-| Phase 3 (tuner #4)     | TBD    | TBD        | TBD         | TBD               |
+| Build                              | Gate    | Peak demand | CWSDPMI.SWP | Wall time (n=200) |
+|------------------------------------|---------|------------:|------------:|------------------:|
+| Post-Phase-2 (b5d72d0)             | primary | 19.89 MB    | 0           | ~5m45s            |
+| Phase 3 + Experiment A (flags)     | primary | 19.89 MB    | 0           | **2m43s**         |
+| Phase 3 + Experiment A + #4 int8 KV | TBD    | TBD         | TBD         | TBD               |
 
 ### stories42M_q80 at memsize=48
 
