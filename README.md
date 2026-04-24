@@ -18,7 +18,7 @@ This project was 100% built agentically using [Claude Code](https://docs.anthrop
 
 ## Minimum Requirements
 
-- Intel Pentium-class CPU (P5, P54C, or OverDrive)
+- Intel 486DX or later x86 CPU with a floating-point unit (Pentium-class is the tested configuration)
 - 48 megs RAM for `stories42M_q80`; 24 megs is enough for `stories15M_q80`
 - MS-DOS 6.22 or compatible (HIMEM.SYS required; EMM386 not recommended)
 - IDE / CF storage with ~50 megs free
