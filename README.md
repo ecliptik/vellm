@@ -35,13 +35,13 @@ This project was 100% built agentically using [Claude Code](https://docs.anthrop
 - Single-arena runtime allocator — one `malloc` at startup, no per-token allocations, deterministic across runs
 - `--max-seq-len` cap clamps the KV cache below the checkpoint's native `seq_len` for memory-constrained configs
 
-**DOS integration**
-- Cross-compiled on Linux; runs in 32-bit protected mode via CWSDPMI
-- Works on DOS 6.22 + HIMEM.SYS
-
 **Correctness**
 - First 192 bytes of output byte-identical to upstream `runq.c` on the canonical prompt — covers tokenizer, attention, FFN, RMSNorm, RoPE, softmax, argmax
 - Tolerance fallback: ≥97% whitespace-word positional agreement (for optimizations that trade bit-identity for speed)
+
+**DOS integration**
+- Runs in 32-bit protected mode via CWSDPMI
+- Works on DOS 6.22 + HIMEM.SYS
 
 ## Usage
 
@@ -142,4 +142,4 @@ Full attribution matrix: [THIRD-PARTY.md](./THIRD-PARTY.md).
 
 ## License
 
-MIT. See [LICENSE](./LICENSE) for vellm itself, [`vendor/cwsdpmi/`](./vendor/cwsdpmi/) for CWSDPMI's redistribution terms, [`vendor/llama2.c/LICENSE`](./vendor/llama2.c/LICENSE) for upstream llama2.c, and [THIRD-PARTY.md](./THIRD-PARTY.md) for the complete attribution matrix.
+MIT. See [LICENSE](./LICENSE) for vellm itself, [`vendor/cwsdpmi/`](./vendor/cwsdpmi/) for CWSDPMI's redistribution terms, and [`vendor/llama2.c/LICENSE`](./vendor/llama2.c/LICENSE) for upstream llama2.c.
