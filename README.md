@@ -7,7 +7,7 @@ vellm is a port of karpathy's [llama2.c](https://github.com/karpathy/llama2.c) (
 This project was 100% built agentically using [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
 <p align="center">
-<a href="#minimum-requirements">Minimum Requirements</a> · <a href="#features">Features</a> · <a href="#usage">Usage</a> · <a href="#benchmarks">Benchmarks</a> · <a href="#deployment">Deployment</a> · <a href="#building">Building</a> · <a href="#testing">Testing</a> · <a href="#acknowledgments">Acknowledgments</a> · <a href="#license">License</a>
+<a href="#minimum-requirements">Minimum Requirements</a> · <a href="#features">Features</a> · <a href="#usage">Usage</a> · <a href="#benchmarks">Benchmarks</a> · <a href="#building">Building</a> · <a href="#acknowledgments">Acknowledgments</a> · <a href="#license">License</a>
 </p>
 
 <p align="center">
@@ -137,26 +137,9 @@ peak mem   : 19791872
 
 The banner on stderr shows CPU name, measured MHz, RAM, and DOS/BIOS versions. Visible in the screenshot above.
 
-## Deployment
-
-`make cf-package` (see [BUILDING.md](./BUILDING.md)) produces `dist/vellm-cf.tar.gz` and `.zip` containing `VELLM.EXE`, `CWSDPMI.EXE`, tokenizer, model(s), `RUN.BAT` / `BENCH.BAT` / `BENCH42.BAT`, `LICENSE.TXT`, and `README.TXT`. The 42M model + `BENCH42.BAT` are included if `models/stories42M_q80.bin` is present at build time.
-
-Mount a CF card and extract:
-
-```bash
-tar xzf dist/vellm-cf.tar.gz -C /mnt/cf
-```
-
-Boot the DOS machine and run `RUN.BAT` or a benchmark script.
-
 ## Building
 
-See [BUILDING.md](./BUILDING.md) for prerequisites, the DJGPP cross-compiler install, build commands, and a common-errors section.
-
-## Testing
-
-- **Pre-hardware**: [DOSBox-X](https://dosbox-x.com/) with `tools/dosbox-x.conf` (Pentium, 48 MB, `cycles=fixed 90000`). `tests/run-golden.sh` runs the correctness gate headless; `bench/run.sh` drives the benchmark matrix.
-- **Real hardware**: Intel Pentium Overdrive PODP5V83, Anigma LP4IP1 board, 48 MB RAM, MS-DOS 6.22, CF-to-IDE storage.
+See [BUILDING.md](./BUILDING.md) for prerequisites, DJGPP cross-compiler install, build commands, testing, CF packaging, and common errors.
 
 ## Acknowledgments
 
