@@ -80,12 +80,17 @@ to `dosbox-run.sh --include`. RUN.BAT invokes with those names. This keeps
 the test independent of `~N` allocation order.
 
 Alternative not taken: setting DOSBox-X `lfn = true`. Rejected because
-(a) real DOS 6.22 on the target hardware does not have LFN support, so
-the test would drift from the deployment environment, and (b) the CF-card
-`RUN.BAT` produced by `make install` already uses `STORIES15M_Q80.BIN`
-with `~N` — any real DOS 6.22 install ships short names. A follow-up is
-to normalise the install-time filenames too, so the test path and the
-on-CF path match exactly.
+real DOS 6.22 on the target hardware does not have LFN support, so the
+test would drift from the deployment environment.
+
+**Follow-up resolved (Phase 4 post-landing):** the `make install`,
+`make dist`, and `make cf-package` targets were updated to stage
+everything under 8.3-safe names (`STORY15.BIN`, `STORY42.BIN`,
+`TOKEN.BIN`) so the on-CF path matches the test path exactly. Before
+the fix, a real-DOS run of the shipped `RUN.BAT` / `BENCH.BAT` failed
+with "Couldn't open file STORIES15M_Q80.BIN" because `tar xzf` on a
+Linux VFAT driver wrote long names whose `~N` aliases weren't stable
+under pure DOS 6.22.
 
 ## CWSDPMI paging under DOSBox-X (signal for Phase 2)
 

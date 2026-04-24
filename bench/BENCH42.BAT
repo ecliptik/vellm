@@ -13,4 +13,4 @@ ECHO.
 ECHO Running vellm benchmark (stories42M_q80, seq=256, 200 tokens)...
 ECHO This takes ~8 minutes on a Pentium/83.
 ECHO.
-VELLM.EXE STORIES42M_Q80.BIN -z TOKENIZER.BIN --benchmark --max-seq-len 256
+VELLM.EXE STORY42.BIN -z TOKEN.BIN --benchmark --max-seq-len 256

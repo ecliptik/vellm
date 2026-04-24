@@ -109,8 +109,8 @@ hello.exe: tests/smoketest/hello.c
 #   VELLM.EXE        — the DJGPP-built inference binary
 #   CWSDPMI.EXE      — required DPMI host; must ship alongside vellm.exe
 #   CWSDPMI.DOC      — cwsdpmi license/readme (THIRD-PARTY.md requirement)
-#   STORIES15M_Q80.BIN — TinyStories Q8_0 checkpoint (~15 MB, from karpathy/llama2.c release)
-#   TOKENIZER.BIN    — 32K-vocab SentencePiece tokenizer
+#   STORY15.BIN — TinyStories Q8_0 checkpoint (~15 MB, from karpathy/llama2.c release)
+#   TOKEN.BIN    — 32K-vocab SentencePiece tokenizer
 #   RUN.BAT          — canned invocation with the Phase 1 golden-test args
 
 CF ?=
@@ -123,7 +123,7 @@ CWSDPMI_DOC := vendor/cwsdpmi/cwsdpmi.doc
 # Canonical Phase 1 invocation. Flag names track runq.c argv verbatim
 # (lowercase: -z tokenizer, -t temp, -s seed, -n steps, -i prompt).
 # DOS COMMAND.COM passes argv through literally so lowercase works.
-RUN_BAT_CMD := VELLM.EXE STORIES15M_Q80.BIN -z TOKENIZER.BIN -t 0 -s 42 -n 200 -i "Once upon a time"
+RUN_BAT_CMD := VELLM.EXE STORY15.BIN -z TOKEN.BIN -t 0 -s 42 -n 200 -i "Once upon a time"
 
 .PHONY: install
 install: vellm.exe
@@ -138,8 +138,8 @@ else
 	install -m 0644 vellm.exe        "$(CF)/VELLM.EXE"
 	install -m 0644 $(CWSDPMI_EXE)   "$(CF)/CWSDPMI.EXE"
 	install -m 0644 $(CWSDPMI_DOC)   "$(CF)/CWSDPMI.DOC"
-	install -m 0644 $(MODEL_BIN)     "$(CF)/STORIES15M_Q80.BIN"
-	install -m 0644 $(TOKENIZER_BIN) "$(CF)/TOKENIZER.BIN"
+	install -m 0644 $(MODEL_BIN)     "$(CF)/STORY15.BIN"
+	install -m 0644 $(TOKENIZER_BIN) "$(CF)/TOKEN.BIN"
 	@printf '@echo off\r\nset DPMI=CWSDPMI.EXE\r\n%s\r\n' '$(RUN_BAT_CMD)' > "$(CF)/RUN.BAT"
 	@echo "installed vellm payload to $(CF)"
 endif
@@ -156,8 +156,8 @@ dist: vellm.exe
 		cp vellm.exe            "$$tmp/VELLM.EXE" && \
 		cp $(CWSDPMI_EXE)       "$$tmp/CWSDPMI.EXE" && \
 		cp $(CWSDPMI_DOC)       "$$tmp/CWSDPMI.DOC" && \
-		cp $(MODEL_BIN)         "$$tmp/STORIES15M_Q80.BIN" && \
-		cp $(TOKENIZER_BIN)     "$$tmp/TOKENIZER.BIN" && \
+		cp $(MODEL_BIN)         "$$tmp/STORY15.BIN" && \
+		cp $(TOKENIZER_BIN)     "$$tmp/TOKEN.BIN" && \
 		printf '@echo off\r\nset DPMI=CWSDPMI.EXE\r\n%s\r\n' '$(RUN_BAT_CMD)' > "$$tmp/RUN.BAT" && \
 		(cd "$$tmp" && zip -q -r "$(CURDIR)/dist/vellm.zip" .) && \
 		rm -rf "$$tmp" && \
@@ -259,8 +259,8 @@ This package contains:
     README.TXT          this file
     RUN.BAT             canonical demo runner
     BENCH.BAT           15M benchmark runner
-    STORIES15M_Q80.BIN  TinyStories 15M Q8_0 checkpoint
-    TOKENIZER.BIN       Llama 32K-vocab tokenizer@42M_LIST@
+    STORY15.BIN         TinyStories 15M Q8_0 checkpoint
+    TOKEN.BIN           Llama 32K-vocab tokenizer@42M_LIST@
 endef
 export CF_README_TEMPLATE
 
@@ -282,7 +282,7 @@ export CF_README_42M_RUN
 # tokenizer listing line).
 define CF_README_42M_LIST
 
-    STORIES42M_Q80.BIN  TinyStories 42M Q8_0 checkpoint (optional)
+    STORY42.BIN         TinyStories 42M Q8_0 checkpoint (optional)
     BENCH42.BAT         42M benchmark runner (optional)
 endef
 export CF_README_42M_LIST
@@ -309,8 +309,8 @@ cf-package: vellm.exe
 	@install -m 0644 vellm.exe            "$(CF_STAGE)/VELLM.EXE"
 	@install -m 0644 $(CWSDPMI_EXE)       "$(CF_STAGE)/CWSDPMI.EXE"
 	@install -m 0644 $(CWSDPMI_DOC)       "$(CF_STAGE)/CWSDPMI.DOC"
-	@install -m 0644 $(MODEL_BIN)         "$(CF_STAGE)/STORIES15M_Q80.BIN"
-	@install -m 0644 $(TOKENIZER_BIN)     "$(CF_STAGE)/TOKENIZER.BIN"
+	@install -m 0644 $(MODEL_BIN)         "$(CF_STAGE)/STORY15.BIN"
+	@install -m 0644 $(TOKENIZER_BIN)     "$(CF_STAGE)/TOKEN.BIN"
 	@$(CRLF) < $(BENCH_BAT) > "$(CF_STAGE)/BENCH.BAT"
 	@printf '@echo off\r\nset DPMI=CWSDPMI.EXE\r\n%s\r\n' '$(RUN_BAT_CMD)' > "$(CF_STAGE)/RUN.BAT"
 	@$(CRLF) < LICENSE > "$(CF_STAGE)/LICENSE.TXT"
@@ -319,11 +319,11 @@ cf-package: vellm.exe
 	@# When absent, the two markers are replaced with empty strings.
 	@url='$(shell git remote get-url origin 2>/dev/null || echo unknown)'; \
 	if [ -f "$(MODEL_42M_BIN)" ]; then \
-	    install -m 0644 $(MODEL_42M_BIN)   "$(CF_STAGE)/STORIES42M_Q80.BIN"; \
+	    install -m 0644 $(MODEL_42M_BIN)   "$(CF_STAGE)/STORY42.BIN"; \
 	    $(CRLF) < $(BENCH42_BAT)          > "$(CF_STAGE)/BENCH42.BAT"; \
 	    run_blk="$$CF_README_42M_RUN"; \
 	    list_blk="$$CF_README_42M_LIST"; \
-	    echo "cf-package: 42M included (STORIES42M_Q80.BIN + BENCH42.BAT)"; \
+	    echo "cf-package: 42M included (STORY42.BIN + BENCH42.BAT)"; \
 	else \
 	    run_blk=""; \
 	    list_blk=""; \

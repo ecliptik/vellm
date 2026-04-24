@@ -23,10 +23,13 @@ tests/run-golden.sh         # correctness gate: first 192 bytes vs. golden
 ## Quick run (DOSBox-X)
 
 ```bash
-tools/dosbox-run.sh --exe vellm.exe \
-    --args 'STORIES15M_Q80.BIN -z TOKENIZER.BIN -t 0 -s 42 -n 200 -i "Once upon a time"' \
-    --include models/stories15M_q80.bin --include models/tokenizer.bin
+tests/run-golden.sh    # canonical prompt, diffs first 192 bytes vs golden
+bench/run.sh           # full benchmark matrix → bench/results.md
 ```
+
+Both scripts stage inputs to 8.3-safe names internally (`MODEL.BIN`,
+`TOKEN.BIN`) — DOS 6.22 has no LFN support, so long host filenames
+like `stories15M_q80.bin` won't open under DJGPP.
 
 Expected first paragraph: `Once upon a time, there was a little girl
 named Lily…` — the first 192 bytes match the pinned golden, regardless
