@@ -336,9 +336,19 @@ void read_checkpoint(char* checkpoint, Config* config, TransformerWeights* weigh
     memory_map_weights(weights, config, weights_ptr, shared_classifier);
 }
 
-void build_transformer(Transformer *t, char* checkpoint_path) {
+void build_transformer(Transformer *t, char* checkpoint_path, int max_seq_len) {
     // read in the Config and the Weights from the checkpoint
     read_checkpoint(checkpoint_path, &t->config, &t->weights, &t->fd, &t->data, &t->file_size);
+    // DOS-PORT: optional --max-seq-len cap on KV cache allocation; checkpoint
+    // DOS-PORT: seq_len is an upper bound, not a hard requirement. On stories42M
+    // DOS-PORT: (seq_len=1024) the KV cache dominates peak memory — capping at
+    // DOS-PORT: 256 reclaims ~24 MB so 42M fits in 48 MB DPMI without swap.
+    // DOS-PORT: Cap happens BEFORE runstate_arena_size so the arena is sized to
+    // DOS-PORT: the reduced seq_len. forward()'s use of p->seq_len as the kv
+    // DOS-PORT: stride then Just Works — no forward-path changes needed.
+    if (max_seq_len > 0 && max_seq_len < t->config.seq_len) {
+        t->config.seq_len = max_seq_len;
+    }
     // DOS-PORT: one malloc for the whole RunState, sized from Config up front.
     arena_init(&t->run_arena, runstate_arena_size(&t->config));
     // allocate the RunState buffers
@@ -1124,6 +1134,9 @@ void error_usage() {
     fprintf(stderr, "  -z <string> optional path to custom tokenizer\n");
     fprintf(stderr, "  -m <string> mode: generate|chat, default: generate\n");
     fprintf(stderr, "  -y <string> (optional) system prompt in chat mode\n");
+    // DOS-PORT: --max-seq-len / -L cap KV cache allocation below the checkpoint's
+    // DOS-PORT: baked-in seq_len (see build_transformer).
+    fprintf(stderr, "  -L <int>    cap KV cache at N tokens (also: --max-seq-len N)\n");
     exit(EXIT_FAILURE);
 }
 
@@ -1142,6 +1155,9 @@ int main(int argc, char *argv[]) {
     unsigned long long rng_seed = 0; // seed rng with time by default
     char *mode = "generate";    // generate|chat
     char *system_prompt = NULL; // the (optional) system prompt to use in chat mode
+    // DOS-PORT: -1 sentinel means "use checkpoint's Config.seq_len as-is";
+    // DOS-PORT: any positive value caps the KV cache allocation below it.
+    int max_seq_len = -1;
 
     // poor man's C argparse so we can override the defaults above from the command line
     if (argc >= 2) { checkpoint_path = argv[1]; } else { error_usage(); }
@@ -1149,6 +1165,13 @@ int main(int argc, char *argv[]) {
         // do some basic validation
         if (i + 1 >= argc) { error_usage(); } // must have arg after flag
         if (argv[i][0] != '-') { error_usage(); } // must start with dash
+        // DOS-PORT: long-form --max-seq-len accepted alongside short -L (below).
+        // DOS-PORT: handled before the two-letter-flag check so --max-seq-len
+        // DOS-PORT: doesn't trip the strlen(argv[i]) != 2 reject.
+        if (strcmp(argv[i], "--max-seq-len") == 0) {
+            max_seq_len = atoi(argv[i + 1]);
+            continue;
+        }
         if (strlen(argv[i]) != 2) { error_usage(); } // must be -x (one dash, one letter)
         // read in the args
         if (argv[i][1] == 't') { temperature = atof(argv[i + 1]); }
@@ -1159,7 +1182,19 @@ int main(int argc, char *argv[]) {
         else if (argv[i][1] == 'z') { tokenizer_path = argv[i + 1]; }
         else if (argv[i][1] == 'm') { mode = argv[i + 1]; }
         else if (argv[i][1] == 'y') { system_prompt = argv[i + 1]; }
+        // DOS-PORT: -L short alias for --max-seq-len (L = "length cap").
+        else if (argv[i][1] == 'L') { max_seq_len = atoi(argv[i + 1]); }
         else { error_usage(); }
+    }
+
+    // DOS-PORT: validate --max-seq-len against -n before build_transformer so
+    // DOS-PORT: we don't silently truncate generation.
+    if (max_seq_len > 0 && steps > max_seq_len) {
+        fprintf(stderr,
+                "error: -n %d exceeds --max-seq-len %d (KV cache cap); "
+                "either raise --max-seq-len or lower -n\n",
+                steps, max_seq_len);
+        exit(EXIT_FAILURE);
     }
 
     // parameter validation/overrides
@@ -1170,7 +1205,7 @@ int main(int argc, char *argv[]) {
 
     // build the Transformer via the model .bin file
     Transformer transformer;
-    build_transformer(&transformer, checkpoint_path);
+    build_transformer(&transformer, checkpoint_path, max_seq_len);
     if (steps == 0 || steps > transformer.config.seq_len) steps = transformer.config.seq_len; // override to ~max length
 
     // build the Tokenizer via the tokenizer .bin file
