@@ -32,8 +32,8 @@ the Phase 3 final build (`-O2 -fomit-frame-pointer -funroll-loops
 | DOSBox-X cycles=90000 | GenuineIntel family 5 model 1 stepping 7 | 42M q80 | 256 | 0.42 | 0.41 | 491.3 | 46.06 | 42M at `--max-seq-len 256`, near-ceiling |
 | Host Linux (native) | Intel i7-8700K @ 3.70 GHz | 15M q80 | default (256) | n/a | ~96 | ~2.1 | n/a | sanity ceiling — upstream runq.c |
 | Host Linux (native) | Intel i7-8700K @ 3.70 GHz | 42M q80 | default (1024) | n/a | ~44 | ~4.0 | n/a | sanity ceiling — upstream runq.c |
-| Real PODP5V83 | Pentium OverDrive 83 MHz (P54C, family 5 model 3) | 15M q80 | 256 | _TBD_ | _TBD_ | _TBD_ | _TBD_ | **pending real-HW run** |
-| Real PODP5V83 | Pentium OverDrive 83 MHz (P54C, family 5 model 3) | 42M q80 | 256 | _TBD_ | _TBD_ | _TBD_ | _TBD_ | **pending real-HW run** |
+| Real PODP5V83 | Pentium OverDrive 83 MHz (P54C, family 5 model 3 stepping 2) | 15M q80 | default (256) | 0.28 | 0.27 | 715.6 | 19.79 | **measured 2026-04-24 on real hardware** |
+| Real PODP5V83 | Pentium OverDrive 83 MHz (P54C, family 5 model 3 stepping 2) | 42M q80 | 256 | _TBD_ | _TBD_ | _TBD_ | _TBD_ | **pending measurement** |
 
 ## Observations
 
@@ -62,6 +62,17 @@ the Phase 3 final build (`-O2 -fomit-frame-pointer -funroll-loops
   Pentium reports `family 5 model 1`, while a real PODP5V83 reports
   `family 5 model 3`. Use this as a cheap "is this a real-hardware
   row or a DOSBox-X row?" indicator when reading this file cold.
+- **Real hardware is 3.56× slower than DOSBox-X at `cycles=90000`**
+  for this workload: 715.6 s vs 201.4 s wall on the same 15M run.
+  `cycles = fixed 90000` approximates IPC × frequency but doesn't
+  model cache misses hitting the 60–66 MHz FSB, FPU dependency-chain
+  latency, or pipeline stalls — all of which dominate our
+  matmul-heavy hot loop. Memory footprint, on the other hand,
+  matches the DOSBox-X projection to the byte (19.79 MB real vs
+  19.9 MB DOSBox-X peak for 15M) — DPMI allocations don't depend on
+  CPU simulation fidelity. DOSBox-X cycles≈25000 would approximate
+  real-HW wall time; see `docs/hardware.md` §"DOSBox-X vs
+  real-hardware calibration".
 
 ## Provenance
 
@@ -102,14 +113,32 @@ for 48 MB of real DOS).
 Reference CPU: Intel Core i7-8700K @ 3.70 GHz, 16 GB RAM, single
 thread (runq.c is single-threaded).
 
-### Real PODP5V83 row
+### Real PODP5V83 rows
 
-**Reserved.** Not fabricated. The `_TBD_` entries are placeholders
-for the real-hardware benchmark run — `dist/vellm-cf.tar.gz`
-(produced by `make cf-package`) is the deploy artifact intended for
-this run. The operator boots DOS on the PODP5V83, runs
-`BENCH.BAT` (15M) and/or `BENCH42.BAT` (42M), and pastes the
-`--- VELLM BENCHMARK ---` block into this file.
+The 15M row was measured 2026-04-24 on the target PODP5V83
+(Anigma LP4IP1, 48 MB RAM, CF-to-IDE with MS-DOS 6.22, CWSDPMI r7)
+using `dist/vellm-cf.tar.gz` / `dist/vellm-cf.zip` (produced by
+`make cf-package`). Operator boots DOS on the PODP5V83, runs
+`BENCH.BAT` (15M) and/or `BENCH42.BAT` (42M, `--max-seq-len 256`),
+and transcribes the `--- VELLM BENCHMARK ---` block. Raw
+transcription for the 15M run:
+
+```
+cpu        : GenuineIntel family 5 model 3 stepping 2
+model      : STORY15.BIN
+ckpt bytes : 17101696
+tokens     : 199
+prompt tok : 8
+gen tok    : 191
+wall ms    : 715604
+prompt tok/s: 0.28
+gen tok/s  : 0.27
+peak mem   : 19791872
+```
+
+The 42M row is still `_TBD_` — the `BENCH42.BAT` run on real
+hardware is in flight at the time of this commit and fills in
+once the operator transcribes the block.
 
 ## Reproducing
 
