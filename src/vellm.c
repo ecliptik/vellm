@@ -93,6 +93,51 @@ typedef struct {
     float* value_cache; // (layer, seq_len, dim)
 } RunState;
 
+// DOS-PORT: single pre-allocated arena replaces the 15 scattered calloc() calls
+// DOS-PORT: in malloc_run_state() below — avoids DPMI heap fragmentation and
+// DOS-PORT: makes peak RunState memory deterministic on the 48 MB PODP5V83.
+// DOS-PORT: 16-byte-aligned bump allocator; zeroed once at init so arena_alloc
+// DOS-PORT: returns zero-filled memory (preserves upstream's calloc semantics).
+typedef struct {
+    char *base;
+    size_t size;
+    size_t used;
+} Arena;
+
+static size_t arena_align16(size_t n) { return (n + 15u) & ~(size_t)15u; }
+
+static void arena_init(Arena *a, size_t bytes) {
+    a->base = (char*)malloc(bytes);
+    if (!a->base) {
+        fprintf(stderr, "arena alloc failed (%lu bytes)\n", (unsigned long)bytes);
+        exit(EXIT_FAILURE);
+    }
+    memset(a->base, 0, bytes);
+    a->size = bytes;
+    a->used = 0;
+}
+
+static void *arena_alloc(Arena *a, size_t bytes) {
+    size_t aligned = arena_align16(bytes);
+    if (a->used + aligned > a->size) {
+        fprintf(stderr,
+                "arena exhausted: used=%lu want=%lu size=%lu\n",
+                (unsigned long)a->used, (unsigned long)aligned,
+                (unsigned long)a->size);
+        exit(EXIT_FAILURE);
+    }
+    void *p = a->base + a->used;
+    a->used += aligned;
+    return p;
+}
+
+static void arena_free(Arena *a) {
+    free(a->base);
+    a->base = NULL;
+    a->size = 0;
+    a->used = 0;
+}
+
 typedef struct {
     Config config; // the hyperparameters of the architecture (the blueprint)
     TransformerWeights weights; // the weights of the model
@@ -103,51 +148,60 @@ typedef struct {
     // DOS-PORT: ssize_t is 32-bit on DJGPP (long). 15M/42M q80 checkpoints
     // DOS-PORT: fit in 32 bits with plenty of headroom; upstream assumed 64-bit host.
     ssize_t file_size; // size of the checkpoint file in bytes
+    // DOS-PORT: arena backing every buffer in RunState (see malloc_run_state).
+    Arena run_arena;
 } Transformer;
 
-void malloc_run_state(RunState* s, Config* p) {
-    // we calloc instead of malloc to keep valgrind happy
+// DOS-PORT: size the arena by summing every RunState allocation up front;
+// DOS-PORT: mirror any change in malloc_run_state() below in this list too.
+static size_t runstate_arena_size(Config *p) {
     int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
-    s->x = calloc(p->dim, sizeof(float));
-    s->xb = calloc(p->dim, sizeof(float));
-    s->xb2 = calloc(p->dim, sizeof(float));
-    s->hb = calloc(p->hidden_dim, sizeof(float));
-    s->hb2 = calloc(p->hidden_dim, sizeof(float));
-    s->xq = (QuantizedTensor) { .q = calloc(p->dim, sizeof(int8_t)), .s = calloc(p->dim, sizeof(float)) };
-    s->hq = (QuantizedTensor) { .q = calloc(p->hidden_dim, sizeof(int8_t)), .s = calloc(p->hidden_dim, sizeof(float)) };
-    s->q = calloc(p->dim, sizeof(float));
-    s->k = calloc(kv_dim, sizeof(float));
-    s->v = calloc(kv_dim, sizeof(float));
-    s->att = calloc(p->n_heads * p->seq_len, sizeof(float));
-    s->logits = calloc(p->vocab_size, sizeof(float));
-    s->key_cache = calloc(p->n_layers * p->seq_len * kv_dim, sizeof(float));
-    s->value_cache = calloc(p->n_layers * p->seq_len * kv_dim, sizeof(float));
-    // ensure all mallocs went fine
-    if (!s->x || !s->xb || !s->xb2 || !s->hb || !s->hb2 || !s->q
-     || !s->k || !s->v || !s->att || !s->logits || !s->key_cache
-     || !s->value_cache) {
-        fprintf(stderr, "malloc failed!\n");
-        exit(EXIT_FAILURE);
-    }
+    size_t n = 0;
+    n += arena_align16((size_t)p->dim * sizeof(float));                             // x
+    n += arena_align16((size_t)p->dim * sizeof(float));                             // xb
+    n += arena_align16((size_t)p->dim * sizeof(float));                             // xb2
+    n += arena_align16((size_t)p->hidden_dim * sizeof(float));                      // hb
+    n += arena_align16((size_t)p->hidden_dim * sizeof(float));                      // hb2
+    n += arena_align16((size_t)p->dim * sizeof(int8_t));                            // xq.q
+    n += arena_align16((size_t)p->dim * sizeof(float));                             // xq.s
+    n += arena_align16((size_t)p->hidden_dim * sizeof(int8_t));                     // hq.q
+    n += arena_align16((size_t)p->hidden_dim * sizeof(float));                      // hq.s
+    n += arena_align16((size_t)p->dim * sizeof(float));                             // q
+    n += arena_align16((size_t)kv_dim * sizeof(float));                             // k
+    n += arena_align16((size_t)kv_dim * sizeof(float));                             // v
+    n += arena_align16((size_t)p->n_heads * p->seq_len * sizeof(float));            // att
+    n += arena_align16((size_t)p->vocab_size * sizeof(float));                      // logits
+    n += arena_align16((size_t)p->n_layers * p->seq_len * kv_dim * sizeof(float));  // key_cache
+    n += arena_align16((size_t)p->n_layers * p->seq_len * kv_dim * sizeof(float));  // value_cache
+    return n;
 }
 
+// DOS-PORT: bump-alloc every buffer out of the pre-sized arena. Signature
+// DOS-PORT: gains an Arena* vs. upstream; build_transformer() owns the arena.
+void malloc_run_state(RunState* s, Config* p, Arena *a) {
+    int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
+    s->x           = (float*) arena_alloc(a, (size_t)p->dim * sizeof(float));
+    s->xb          = (float*) arena_alloc(a, (size_t)p->dim * sizeof(float));
+    s->xb2         = (float*) arena_alloc(a, (size_t)p->dim * sizeof(float));
+    s->hb          = (float*) arena_alloc(a, (size_t)p->hidden_dim * sizeof(float));
+    s->hb2         = (float*) arena_alloc(a, (size_t)p->hidden_dim * sizeof(float));
+    s->xq.q        = (int8_t*)arena_alloc(a, (size_t)p->dim * sizeof(int8_t));
+    s->xq.s        = (float*) arena_alloc(a, (size_t)p->dim * sizeof(float));
+    s->hq.q        = (int8_t*)arena_alloc(a, (size_t)p->hidden_dim * sizeof(int8_t));
+    s->hq.s        = (float*) arena_alloc(a, (size_t)p->hidden_dim * sizeof(float));
+    s->q           = (float*) arena_alloc(a, (size_t)p->dim * sizeof(float));
+    s->k           = (float*) arena_alloc(a, (size_t)kv_dim * sizeof(float));
+    s->v           = (float*) arena_alloc(a, (size_t)kv_dim * sizeof(float));
+    s->att         = (float*) arena_alloc(a, (size_t)p->n_heads * p->seq_len * sizeof(float));
+    s->logits      = (float*) arena_alloc(a, (size_t)p->vocab_size * sizeof(float));
+    s->key_cache   = (float*) arena_alloc(a, (size_t)p->n_layers * p->seq_len * kv_dim * sizeof(float));
+    s->value_cache = (float*) arena_alloc(a, (size_t)p->n_layers * p->seq_len * kv_dim * sizeof(float));
+}
+
+// DOS-PORT: no-op — buffers live in Transformer.run_arena, freed by
+// DOS-PORT: arena_free() in free_transformer. Stub kept for call-site parity.
 void free_run_state(RunState* s) {
-    free(s->x);
-    free(s->xb);
-    free(s->xb2);
-    free(s->hb);
-    free(s->hb2);
-    free(s->xq.q);
-    free(s->xq.s);
-    free(s->hq.q);
-    free(s->hq.s);
-    free(s->q);
-    free(s->k);
-    free(s->v);
-    free(s->att);
-    free(s->logits);
-    free(s->key_cache);
-    free(s->value_cache);
+    (void)s;
 }
 
 // ----------------------------------------------------------------------------
@@ -281,8 +335,10 @@ void read_checkpoint(char* checkpoint, Config* config, TransformerWeights* weigh
 void build_transformer(Transformer *t, char* checkpoint_path) {
     // read in the Config and the Weights from the checkpoint
     read_checkpoint(checkpoint_path, &t->config, &t->weights, &t->fd, &t->data, &t->file_size);
+    // DOS-PORT: one malloc for the whole RunState, sized from Config up front.
+    arena_init(&t->run_arena, runstate_arena_size(&t->config));
     // allocate the RunState buffers
-    malloc_run_state(&t->state, &t->config);
+    malloc_run_state(&t->state, &t->config, &t->run_arena);
 }
 
 void free_transformer(Transformer* t) {
@@ -301,6 +357,8 @@ void free_transformer(Transformer* t) {
     if (t->data != NULL) { free(t->data); t->data = NULL; }
     // free the RunState buffers
     free_run_state(&t->state);
+    // DOS-PORT: release the single arena that backed every RunState buffer.
+    arena_free(&t->run_arena);
 }
 
 // ----------------------------------------------------------------------------
