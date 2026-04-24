@@ -23,7 +23,7 @@ See `PLAN.md` for the phased implementation roadmap.
 
 | Component | Location | Install |
 |---|---|---|
-| DJGPP cross-compiler | `~/emulators/tools/djgpp/` | `tools/build-djgpp.sh` → symlink to hub canonical `~/emulators/scripts/update-djgpp.sh` |
+| DJGPP cross-compiler | `~/emulators/tools/djgpp/` (override via `DJGPP_PREFIX`) | `tools/build-djgpp.sh` (wraps `andrewwutw/build-djgpp`) |
 | DOSBox-X (pre-hardware test) | system | `sudo apt install dosbox-x` |
 | CWSDPMI | `vendor/cwsdpmi/cwsdpmi.exe` | vendored |
 | Python (host quantizer) | 3.11+ | `tools/quantize.py` (Phase 2+) |

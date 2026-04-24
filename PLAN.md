@@ -35,7 +35,7 @@ vellm ports Karpathy's `llama2.c/runq.c` — the int8-quantized inference varian
 2. DOSBox-X (apt). Config at `tools/dosbox-x.conf`: Pentium CPU, 48 MB, cycles tuned for Pentium/83.
 3. CWSDPMI vendored at `vendor/cwsdpmi/cwsdpmi.exe`, license alongside.
 4. Repo skeleton per layout below.
-5. Git remote verified (`ssh://git@forgejo.ecliptik.com/ecliptik/vellm.git`).
+5. Git remote verified.
 
 **Exit:** a stub `hello.c` cross-compiles to `hello.exe`, runs headless under DOSBox-X, prints hello, test script diffs captured stdout against expected output.
 
