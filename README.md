@@ -38,16 +38,6 @@ This project was 100% built agentically using [Claude Code](https://docs.anthrop
 **DOS integration**
 - Cross-compiled on Linux; runs in 32-bit protected mode via CWSDPMI
 - Works on DOS 6.22 + HIMEM.SYS
-- 8.3 filenames throughout
-- `make cf-package` bundles binary + CWSDPMI + tokenizer + models + runner scripts into `vellm-cf.tar.gz` / `.zip`
-
-**Hardware detection**
-- Startup banner reports CPU brand, measured MHz, RAM, and DOS/BIOS versions
-
-**Benchmarking**
-- `--benchmark` mode: fixed prompt, seed, temp; emits a machine-parseable `--- VELLM BENCHMARK ---` block with `tokens`, `wall ms`, `prompt tok/s`, `gen tok/s`, `peak mem`
-- `bench/run.sh` drives DOSBox-X and parses results into [`bench/results.md`](./bench/results.md)
-- `BENCH.BAT` / `BENCH42.BAT` for on-hardware benchmarks with a progress spinner
 
 **Correctness**
 - First 192 bytes of output byte-identical to upstream `runq.c` on the canonical prompt — covers tokenizer, attention, FFN, RMSNorm, RoPE, softmax, argmax
