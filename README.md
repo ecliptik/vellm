@@ -64,6 +64,9 @@ C:\VELLM>BENCH42.BAT > BENCH42.TXT
 ```
 
 **Custom prompts**
+
+TinyStories checkpoints are narrow-domain. Prompts phrased as short children's-book openings produce the best output.
+
 ```
 REM deterministic (seed 42, greedy) - same output every run
 VELLM.EXE STORY15.BIN -z TOKEN.BIN -t 0 -s 42 -i "Once upon a time"
@@ -90,8 +93,6 @@ VELLM.EXE STORY42.BIN -z TOKEN.BIN -L 128 -t 0.8 -i "The floppy drive"
 | `-L N` | KV cache cap (`--max-seq-len`) | required for 42M on 48 MB: use `-L 128` |
 | `-Z PATH` | Tokenizer path | always `TOKEN.BIN` for stock models |
 | `--BENCHMARK` / `-B` | Machine-parseable benchmark mode | fixed seed/prompt/temp |
-
-TinyStories checkpoints are narrow-domain. Prompts phrased as short children's-book openings produce the best output.
 
 ## Benchmarks
 
@@ -122,8 +123,6 @@ prompt tok/s: 0.28
 gen tok/s  : 0.27
 peak mem   : 19791872
 ```
-
-The banner on stderr shows CPU name, measured MHz, RAM, and DOS/BIOS versions. Visible in the screenshot above.
 
 ## Building
 
